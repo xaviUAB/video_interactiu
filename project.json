@@ -1,6 +1,5 @@
 {
-  "version": "1.0",
-  "timestamp": 1766144376136,
+  "version": "2.0",
   "startNodeId": "intro",
   "nodes": [
     {
@@ -15,14 +14,14 @@
       "options": [
         {
           "id": "opt1",
-          "label": "Anar a la Plaça",
+          "label": "Anar a l'Hospital",
           "targetNodeId": "bosc",
-          "startTime": 1.7903283582089553,
-          "endTime": 11.790328358208955,
-          "singleUse": true,
+          "startTime": 0,
+          "endTime": 23.160877742946706,
+          "singleUse": false,
           "style": {
-            "top": 75.02092050209205,
-            "left": 27.16417910447761,
+            "top": 75.23012552301256,
+            "left": 21.991765311374163,
             "width": 160,
             "height": 50,
             "fontSize": 16,
@@ -32,18 +31,30 @@
             "padding": 10,
             "borderRadius": 8,
             "fontFamily": "sans-serif"
-          }
+          },
+          "condition": {
+            "variable": "hospital",
+            "operator": "eq",
+            "value": 0
+          },
+          "effects": [
+            {
+              "variable": "hospital",
+              "operator": "set",
+              "value": 1
+            }
+          ]
         },
         {
           "id": "opt2",
           "label": "Anar als FFCC",
           "targetNodeId": "casa",
-          "startTime": 3.3700298507462687,
-          "endTime": 13.370029850746269,
+          "startTime": 0,
+          "endTime": 23.492664576802508,
           "singleUse": false,
           "style": {
-            "top": 75.64853556485356,
-            "left": 73.88059701492537,
+            "top": 76.48535564853557,
+            "left": 79.67997005567773,
             "width": 180,
             "height": 50,
             "fontSize": 16,
@@ -55,7 +66,8 @@
             "fontFamily": "sans-serif"
           }
         }
-      ]
+      ],
+      "transitionType": "fade"
     },
     {
       "id": "bosc",
@@ -71,12 +83,45 @@
           "id": "opt3",
           "label": "Anar a la Biblioteca",
           "targetNodeId": "intro",
-          "startTime": -34.976689,
-          "endTime": 15.023311,
+          "startTime": 0,
+          "endTime": 15.626306434169276,
           "singleUse": false,
           "style": {
-            "top": 87.11297071129707,
-            "left": 32.38805970149254,
+            "top": 79.37238493723851,
+            "left": 79.09652365133579,
+            "width": 200,
+            "height": 60,
+            "fontSize": 16,
+            "color": "#ffffff",
+            "backgroundColor": "#3b82f6",
+            "bgOpacity": 1,
+            "padding": 10,
+            "borderRadius": 8,
+            "fontFamily": "sans-serif"
+          }
+        },
+        {
+          "id": "opt-1766145823528",
+          "label": "Anar a dispensari",
+          "targetNodeId": "bosc",
+          "startTime": 0,
+          "endTime": 15.484848363636367,
+          "singleUse": false,
+          "condition": {
+            "variable": "hospital",
+            "operator": "eq",
+            "value": 0
+          },
+          "effects": [
+            {
+              "variable": "hospital",
+              "operator": "set",
+              "value": 1
+            }
+          ],
+          "style": {
+            "top": 78.5355648535565,
+            "left": 23.140410798671226,
             "width": 200,
             "height": 60,
             "fontSize": 16,
@@ -88,7 +133,8 @@
             "fontFamily": "sans-serif"
           }
         }
-      ]
+      ],
+      "transitionType": "fade"
     },
     {
       "id": "casa",
@@ -108,14 +154,14 @@
           "endTime": 10,
           "singleUse": false,
           "style": {
-            "top": 32.635983263598334,
-            "left": 87.08955223880596,
-            "width": 77,
-            "height": 136,
+            "top": 84.18410041841004,
+            "left": 79.25326346324803,
+            "width": 200,
+            "height": 60,
             "fontSize": 16,
             "color": "#ffffff",
-            "backgroundColor": "#f73b57",
-            "bgOpacity": 0.7,
+            "backgroundColor": "#3b82f6",
+            "bgOpacity": 1,
             "padding": 10,
             "borderRadius": 8,
             "fontFamily": "sans-serif"
@@ -129,31 +175,40 @@
           "endTime": 66.96,
           "singleUse": false,
           "style": {
-            "top": 68.6192468619247,
-            "left": 87.31343283582089,
-            "width": 74,
-            "height": 150,
+            "top": 83.97489539748953,
+            "left": 24.39432929396904,
+            "width": 200,
+            "height": 60,
             "fontSize": 16,
             "color": "#ffffff",
-            "backgroundColor": "#f73b57",
-            "bgOpacity": 0.7,
+            "backgroundColor": "#3b82f6",
+            "bgOpacity": 1,
             "padding": 10,
             "borderRadius": 8,
             "fontFamily": "sans-serif"
-          }
+          },
+          "condition": {
+            "variable": "hospital",
+            "operator": "eq",
+            "value": 0
+          },
+          "effects": [
+            {
+              "variable": "hospital",
+              "operator": "set",
+              "value": 1
+            }
+          ]
         }
-      ]
-    },
+      ],
+      "transitionType": "fade"
+    }
+  ],
+  "variables": [
     {
-      "id": "escena-1766139689973",
-      "title": "Escacs",
-      "videoUrl": "videos/cine.mp4",
-      "position": {
-        "x": 360,
-        "y": 360
-      },
-      "color": "#6b7280",
-      "options": []
+      "name": "hospital",
+      "type": "number",
+      "value": 0
     }
   ]
 }
