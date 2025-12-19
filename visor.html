@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualitzador InterVideo</title>
+    <title>Visualitzador Video Interactiu</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -26,6 +26,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            background-color: #000;
         }
 
         video {
@@ -46,17 +47,20 @@
             cursor: pointer;
             border: none;
             outline: none;
-            transition: transform 0.2s, opacity 0.3s;
+            transition: transform 0.2s, opacity 0.5s; /* Fade in suau */
             z-index: 10;
             display: none; /* Ocult per defecte */
+            opacity: 0;
             white-space: nowrap;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            /* Centrem text */
+            align-items: center;
+            justify-content: center;
         }
 
         .interactive-btn.visible {
             display: flex;
-            align-items: center;
-            justify-content: center;
+            opacity: 1;
         }
 
         .interactive-btn:hover {
@@ -66,6 +70,8 @@
 
         /* Loading Spinner */
         .spinner {
+            position: absolute;
+            z-index: 50;
             border: 4px solid rgba(255, 255, 255, 0.1);
             width: 36px;
             height: 36px;
@@ -80,6 +86,8 @@
         }
 
         #error-message {
+            position: absolute;
+            z-index: 60;
             display: none;
             text-align: center;
             color: #ef4444;
@@ -87,17 +95,38 @@
             padding: 2rem;
             border-radius: 8px;
         }
+
+        /* FADE OVERLAY (Cortina negra) */
+        .fade-overlay {
+            position: absolute;
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            background-color: black;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+            z-index: 100;
+        }
+        
+        .fade-overlay.active {
+            opacity: 1;
+            pointer-events: auto; /* Bloqueja clics mentre està negre */
+        }
+
     </style>
 </head>
 <body>
 
     <div id="player-container">
+        <div id="fade-overlay" class="fade-overlay"></div>
         <div id="loading" class="spinner"></div>
         <div id="error-message">
             <h2 class="text-xl font-bold mb-2">Error</h2>
             <p id="error-text"></p>
         </div>
-        <!-- El contingut (video/iframe i botons) s'injectarà aquí -->
+        <!-- El contingut (video/iframe i botons) s'injectarà aquí via JS -->
     </div>
 
     <script>
@@ -108,13 +137,14 @@
         let projectData = null;
         let currentNode = null;
         let clickedOptions = new Set(); // Per recordar opcions d'un sol ús
-        let videoElement = null; // Referència al vídeo actual
+        let runtimeVariables = {};      // Estat de les variables
 
         // ELEMENTS DOM
         const container = document.getElementById('player-container');
         const loading = document.getElementById('loading');
         const errorDiv = document.getElementById('error-message');
         const errorText = document.getElementById('error-text');
+        const fadeOverlay = document.getElementById('fade-overlay');
 
         // --- FUNCIONS AUXILIARS ---
 
@@ -146,6 +176,46 @@
             errorText.textContent = msg;
         }
 
+        // --- LÒGICA DE VARIABLES I CONDICIONS ---
+
+        function initVariables() {
+            if (projectData.variables) {
+                projectData.variables.forEach(v => {
+                    runtimeVariables[v.name] = v.value;
+                });
+            }
+        }
+
+        function checkCondition(condition) {
+            if (!condition || !condition.variable) return true;
+            const currentVal = runtimeVariables[condition.variable];
+            // Si la variable no existeix, assumim 0
+            const safeCurrentVal = currentVal !== undefined ? currentVal : 0;
+            const targetVal = parseFloat(condition.value);
+            
+            switch (condition.operator) {
+                case 'eq': return safeCurrentVal == targetVal;
+                case 'neq': return safeCurrentVal != targetVal;
+                case 'gt': return safeCurrentVal > targetVal;
+                case 'lt': return safeCurrentVal < targetVal;
+                default: return true;
+            }
+        }
+
+        function applyEffects(effects) {
+            if (!effects) return;
+            effects.forEach(eff => {
+                if (!eff.variable) return;
+                const currentVal = runtimeVariables[eff.variable] || 0;
+                const effectVal = parseFloat(eff.value);
+
+                if (eff.operator === 'set') runtimeVariables[eff.variable] = effectVal;
+                if (eff.operator === 'add') runtimeVariables[eff.variable] = currentVal + effectVal;
+                if (eff.operator === 'sub') runtimeVariables[eff.variable] = currentVal - effectVal;
+            });
+            console.log("Variables actualitzades:", runtimeVariables);
+        }
+
         // --- NUCLI DEL REPRODUCTOR ---
 
         async function init() {
@@ -158,7 +228,16 @@
                     throw new Error("El fitxer JSON no conté escenes.");
                 }
 
+                initVariables();
+
                 const startId = projectData.startNodeId || projectData.nodes[0].id;
+                
+                // Si el primer node té fade, comencem en negre
+                const startNode = projectData.nodes.find(n => n.id === startId);
+                if (startNode && startNode.transitionType === 'fade') {
+                    fadeOverlay.classList.add('active');
+                }
+
                 loadNode(startId);
 
             } catch (err) {
@@ -178,17 +257,29 @@
         }
 
         function renderScene(node) {
-            // Netejar contenidor (mantenint loader i error)
-            // Eliminem elements anteriors
-            Array.from(container.children).forEach(child => {
-                if (child.id !== 'loading' && child.id !== 'error-message') {
-                    container.removeChild(child);
-                }
-            });
+            // Netejar contenidor d'elements antics (video, iframe, buttons)
+            // Mantenim overlays i loaders
+            const elementsToRemove = container.querySelectorAll('video, iframe, #buttons-layer');
+            elementsToRemove.forEach(el => el.remove());
 
             loading.style.display = 'block';
             
             const youtubeId = getYoutubeId(node.videoUrl);
+
+            // Callback quan el contingut està llest per mostrar-se
+            const onContentReady = () => {
+                loading.style.display = 'none';
+                // Si és Fosa a Negre, retirem la cortina
+                if (node.transitionType === 'fade') {
+                    // Petita espera per assegurar que el render s'ha pintat
+                    setTimeout(() => {
+                        fadeOverlay.classList.remove('active');
+                    }, 100);
+                } else {
+                    // Si no hi ha fosa, assegurar que no hi ha cortina
+                    fadeOverlay.classList.remove('active');
+                }
+            };
 
             // 1. RENDERITZAR VIDEO / IFRAME
             if (youtubeId) {
@@ -196,62 +287,71 @@
                 iframe.src = `https://www.youtube.com/embed/${youtubeId}?rel=0&controls=0&autoplay=1&modestbranding=1`;
                 iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
                 iframe.allowFullscreen = true;
-                iframe.onload = () => loading.style.display = 'none';
+                iframe.onload = onContentReady;
                 container.appendChild(iframe);
                 
-                // Per a YouTube, mostrem els botons directament (sense timeupdate)
+                // Per a YouTube, mostrem els botons directament
                 renderButtons(node, true);
 
             } else {
                 const video = document.createElement('video');
-                video.src = node.videoUrl; // La URL ja ve amb "videos/" si s'ha desat bé
+                // Assegurar ruta (si és blob o http es queda igual, si no es videos/)
+                // En el visualitzador final, normalment serà videos/nom.mp4
+                let src = node.videoUrl;
+                if (!src.match(/^(http|https|blob):/) && !src.startsWith('videos/')) {
+                     src = `videos/${src}`;
+                }
+                video.src = src;
+                
                 video.playsInline = true;
                 video.autoplay = true;
-                video.controls = false; // Interactiu pur
+                video.controls = false; 
                 
-                video.oncanplay = () => loading.style.display = 'none';
+                // Canplay s'activa quan hi ha prou dades
+                video.oncanplay = onContentReady;
                 
                 video.onerror = (e) => {
                     loading.style.display = 'none';
                     const err = video.error;
                     let msg = "Error carregant el vídeo.";
-                    if (err && err.code === 4) msg = `Vídeo no trobat: ${node.videoUrl}. Verifica la carpeta 'videos'.`;
+                    if (err && err.code === 4) msg = `Vídeo no trobat: ${src}.`;
                     showError(msg);
                 };
 
-                // Gestió del temps per mostrar botons
                 video.ontimeupdate = () => checkButtonVisibility(video.currentTime);
                 
-                // Si el vídeo acaba, què fem? (Opcional: loop o stop)
-                // video.onended = () => { ... }
-
                 container.appendChild(video);
-                videoElement = video;
                 
                 renderButtons(node, false);
                 
-                // Forçar play per si autoplay falla (polítiques navegador)
                 video.play().catch(e => {
-                    // Si falla autoplay, mostrem un botó gran de "Play" (opcional, aquí simplificat)
-                    console.log("Autoplay bloquejat, l'usuari ha d'interactuar.");
-                    video.controls = true; // Fallback
+                    console.log("Autoplay bloquejat. Mostrant controls.");
+                    video.controls = true; 
+                    onContentReady(); // Forçar ready si autoplay falla
                 });
             }
         }
 
         function renderButtons(node, isAlwaysVisible) {
             const buttonsContainer = document.createElement('div');
+            buttonsContainer.id = 'buttons-layer';
             buttonsContainer.style.position = 'absolute';
             buttonsContainer.style.top = '0';
             buttonsContainer.style.left = '0';
             buttonsContainer.style.width = '100%';
             buttonsContainer.style.height = '100%';
-            buttonsContainer.style.pointerEvents = 'none'; // Deixar passar clics al video si cal
-            buttonsContainer.id = 'buttons-layer';
+            buttonsContainer.style.pointerEvents = 'none'; 
 
             node.options.forEach(opt => {
-                // Si és singleUse i ja s'ha clicat, l'ignorem
+                // 1. Check Single Use
                 if (opt.singleUse && clickedOptions.has(opt.id)) return;
+
+                // 2. Check Condition (Variables)
+                // A l'editor React ho fem en temps real, aquí ho fem en carregar l'escena.
+                // Com que les variables només canvien al clicar (canvi d'escena), és segur fer-ho aquí.
+                if (opt.condition && opt.condition.variable) {
+                    if (!checkCondition(opt.condition)) return;
+                }
 
                 const btn = document.createElement('button');
                 btn.className = 'interactive-btn';
@@ -260,7 +360,7 @@
                 btn.dataset.startTime = opt.startTime;
                 btn.dataset.endTime = opt.endTime || 99999;
                 
-                // Aplicar estils
+                // Estils
                 const s = opt.style;
                 const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
                 
@@ -275,9 +375,8 @@
                 btn.style.borderRadius = `${s.borderRadius}px`;
                 btn.style.fontFamily = s.fontFamily;
                 
-                btn.style.pointerEvents = 'auto'; // Reactivar clics al botó
+                btn.style.pointerEvents = 'auto'; 
 
-                // Si és YouTube o no depèn del temps
                 if (isAlwaysVisible) {
                     btn.classList.add('visible');
                 }
@@ -305,10 +404,31 @@
         }
 
         function handleOptionClick(opt) {
+            // 1. Aplicar efectes
+            if (opt.effects) {
+                applyEffects(opt.effects);
+            }
+
+            // 2. Marcar com clicat si cal
             if (opt.singleUse) {
                 clickedOptions.add(opt.id);
             }
-            loadNode(opt.targetNodeId);
+
+            // 3. Gestionar transició
+            const targetNode = projectData.nodes.find(n => n.id === opt.targetNodeId);
+            
+            if (targetNode && targetNode.transitionType === 'fade') {
+                // Fosa a Negre
+                fadeOverlay.classList.add('active');
+                
+                // Esperem 500ms (durada transició CSS) abans de canviar contingut
+                setTimeout(() => {
+                    loadNode(opt.targetNodeId);
+                }, 500);
+            } else {
+                // Tall sec
+                loadNode(opt.targetNodeId);
+            }
         }
 
         // INICIAR APLICACIÓ
