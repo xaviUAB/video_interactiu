@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualitzador Video Interactiu</title>
+    <title>Visualitzador Video Interactiu - Xavier Ribes - Gamelab UAB</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -87,13 +87,15 @@
 
         #error-message {
             position: absolute;
-            z-index: 60;
+            z-index: 200; /* Per sobre de tot, inclòs el fade */
             display: none;
             text-align: center;
-            color: #ef4444;
-            background: rgba(0,0,0,0.8);
+            color: #f87171;
+            background: rgba(20, 20, 20, 0.95);
             padding: 2rem;
             border-radius: 8px;
+            border: 1px solid #7f1d1d;
+            max-width: 80%;
         }
 
         /* FADE OVERLAY (Cortina negra) */
@@ -115,6 +117,36 @@
             pointer-events: auto; /* Bloqueja clics mentre està negre */
         }
 
+        /* START BUTTON OVERLAY */
+        #start-overlay {
+            position: absolute;
+            z-index: 150;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            cursor: pointer;
+        }
+        
+        .play-icon-large {
+            width: 80px;
+            height: 80px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid white;
+            transition: transform 0.2s;
+        }
+        
+        #start-overlay:hover .play-icon-large {
+            transform: scale(1.1);
+            background: rgba(255,255,255,0.4);
+        }
+
     </style>
 </head>
 <body>
@@ -122,6 +154,16 @@
     <div id="player-container">
         <div id="fade-overlay" class="fade-overlay"></div>
         <div id="loading" class="spinner"></div>
+        
+        <div id="start-overlay" onclick="startPlaybackManual()">
+            <div class="play-icon-large">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+            </div>
+            <p class="mt-4 text-lg font-semibold">Clica per començar</p>
+        </div>
+
         <div id="error-message">
             <h2 class="text-xl font-bold mb-2">Error</h2>
             <p id="error-text"></p>
@@ -136,8 +178,9 @@
         // ESTAT
         let projectData = null;
         let currentNode = null;
-        let clickedOptions = new Set(); // Per recordar opcions d'un sol ús
-        let runtimeVariables = {};      // Estat de les variables
+        let clickedOptions = new Set(); 
+        let runtimeVariables = {};     
+        let videoElement = null;
 
         // ELEMENTS DOM
         const container = document.getElementById('player-container');
@@ -145,6 +188,7 @@
         const errorDiv = document.getElementById('error-message');
         const errorText = document.getElementById('error-text');
         const fadeOverlay = document.getElementById('fade-overlay');
+        const startOverlay = document.getElementById('start-overlay');
 
         // --- FUNCIONS AUXILIARS ---
 
@@ -172,8 +216,9 @@
 
         function showError(msg) {
             loading.style.display = 'none';
+            startOverlay.style.display = 'none';
             errorDiv.style.display = 'block';
-            errorText.textContent = msg;
+            errorText.innerHTML = msg; // innerHTML per permetre salts de línia
         }
 
         // --- LÒGICA DE VARIABLES I CONDICIONS ---
@@ -189,7 +234,6 @@
         function checkCondition(condition) {
             if (!condition || !condition.variable) return true;
             const currentVal = runtimeVariables[condition.variable];
-            // Si la variable no existeix, assumim 0
             const safeCurrentVal = currentVal !== undefined ? currentVal : 0;
             const targetVal = parseFloat(condition.value);
             
@@ -220,8 +264,14 @@
 
         async function init() {
             try {
+                // Comprovació protocol file://
+                if (window.location.protocol === 'file:') {
+                    showError("⚠️ <strong>Atenció:</strong> Els navegadors bloquegen la càrrega de fitxers JSON locals per seguretat (CORS).<br><br>Si us plau, penja els fitxers a un servidor web o utilitza un servidor local (com 'Live Server' o Python).");
+                    return;
+                }
+
                 const response = await fetch(JSON_FILE);
-                if (!response.ok) throw new Error(`No s'ha pogut carregar ${JSON_FILE}`);
+                if (!response.ok) throw new Error(`Error ${response.status}: No s'ha trobat ${JSON_FILE}`);
                 projectData = await response.json();
                 
                 if (!projectData.nodes || projectData.nodes.length === 0) {
@@ -241,7 +291,7 @@
                 loadNode(startId);
 
             } catch (err) {
-                showError(err.message + ". Assegura't que 'project.json' està a la mateixa carpeta.");
+                showError(`Error carregant el projecte:<br>${err.message}<br><br>Assegura't que 'project.json' és a la mateixa carpeta.`);
             }
         }
 
@@ -257,31 +307,24 @@
         }
 
         function renderScene(node) {
-            // Netejar contenidor d'elements antics (video, iframe, buttons)
-            // Mantenim overlays i loaders
             const elementsToRemove = container.querySelectorAll('video, iframe, #buttons-layer');
             elementsToRemove.forEach(el => el.remove());
 
             loading.style.display = 'block';
+            videoElement = null;
             
             const youtubeId = getYoutubeId(node.videoUrl);
 
-            // Callback quan el contingut està llest per mostrar-se
             const onContentReady = () => {
                 loading.style.display = 'none';
-                // Si és Fosa a Negre, retirem la cortina
+                startOverlay.style.display = 'none'; // Amagar overlay si estava
                 if (node.transitionType === 'fade') {
-                    // Petita espera per assegurar que el render s'ha pintat
-                    setTimeout(() => {
-                        fadeOverlay.classList.remove('active');
-                    }, 100);
+                    setTimeout(() => { fadeOverlay.classList.remove('active'); }, 100);
                 } else {
-                    // Si no hi ha fosa, assegurar que no hi ha cortina
                     fadeOverlay.classList.remove('active');
                 }
             };
 
-            // 1. RENDERITZAR VIDEO / IFRAME
             if (youtubeId) {
                 const iframe = document.createElement('iframe');
                 iframe.src = `https://www.youtube.com/embed/${youtubeId}?rel=0&controls=0&autoplay=1&modestbranding=1`;
@@ -289,14 +332,9 @@
                 iframe.allowFullscreen = true;
                 iframe.onload = onContentReady;
                 container.appendChild(iframe);
-                
-                // Per a YouTube, mostrem els botons directament
                 renderButtons(node, true);
-
             } else {
                 const video = document.createElement('video');
-                // Assegurar ruta (si és blob o http es queda igual, si no es videos/)
-                // En el visualitzador final, normalment serà videos/nom.mp4
                 let src = node.videoUrl;
                 if (!src.match(/^(http|https|blob):/) && !src.startsWith('videos/')) {
                      src = `videos/${src}`;
@@ -304,33 +342,52 @@
                 video.src = src;
                 
                 video.playsInline = true;
+                // Important: Muted per permetre autoplay
+                video.muted = true; 
                 video.autoplay = true;
                 video.controls = false; 
                 
-                // Canplay s'activa quan hi ha prou dades
                 video.oncanplay = onContentReady;
                 
                 video.onerror = (e) => {
                     loading.style.display = 'none';
                     const err = video.error;
                     let msg = "Error carregant el vídeo.";
-                    if (err && err.code === 4) msg = `Vídeo no trobat: ${src}.`;
+                    if (err && err.code === 4) msg = `Vídeo no trobat: <strong>${src}</strong>.<br>Verifica que la carpeta 'videos' existeix i conté el fitxer.`;
                     showError(msg);
                 };
 
                 video.ontimeupdate = () => checkButtonVisibility(video.currentTime);
                 
                 container.appendChild(video);
+                videoElement = video;
                 
                 renderButtons(node, false);
                 
+                // Intenta reproduir
                 video.play().catch(e => {
-                    console.log("Autoplay bloquejat. Mostrant controls.");
-                    video.controls = true; 
-                    onContentReady(); // Forçar ready si autoplay falla
+                    console.log("Autoplay bloquejat:", e);
+                    loading.style.display = 'none';
+                    // Si falla l'autoplay, mostrem el botó gran
+                    startOverlay.style.display = 'flex';
                 });
             }
         }
+
+        // Funció per arrencar manualment si l'autoplay falla
+        window.startPlaybackManual = function() {
+            if (videoElement) {
+                // Des-silenciem quan l'usuari interacciona (opcional, millor experiència)
+                videoElement.muted = false; 
+                videoElement.play()
+                    .then(() => {
+                        startOverlay.style.display = 'none';
+                    })
+                    .catch(e => {
+                        showError("No es pot reproduir el vídeo: " + e.message);
+                    });
+            }
+        };
 
         function renderButtons(node, isAlwaysVisible) {
             const buttonsContainer = document.createElement('div');
@@ -343,12 +400,8 @@
             buttonsContainer.style.pointerEvents = 'none'; 
 
             node.options.forEach(opt => {
-                // 1. Check Single Use
                 if (opt.singleUse && clickedOptions.has(opt.id)) return;
 
-                // 2. Check Condition (Variables)
-                // A l'editor React ho fem en temps real, aquí ho fem en carregar l'escena.
-                // Com que les variables només canvien al clicar (canvi d'escena), és segur fer-ho aquí.
                 if (opt.condition && opt.condition.variable) {
                     if (!checkCondition(opt.condition)) return;
                 }
@@ -360,7 +413,6 @@
                 btn.dataset.startTime = opt.startTime;
                 btn.dataset.endTime = opt.endTime || 99999;
                 
-                // Estils
                 const s = opt.style;
                 const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
                 
@@ -404,34 +456,26 @@
         }
 
         function handleOptionClick(opt) {
-            // 1. Aplicar efectes
             if (opt.effects) {
                 applyEffects(opt.effects);
             }
 
-            // 2. Marcar com clicat si cal
             if (opt.singleUse) {
                 clickedOptions.add(opt.id);
             }
 
-            // 3. Gestionar transició
             const targetNode = projectData.nodes.find(n => n.id === opt.targetNodeId);
             
             if (targetNode && targetNode.transitionType === 'fade') {
-                // Fosa a Negre
                 fadeOverlay.classList.add('active');
-                
-                // Esperem 500ms (durada transició CSS) abans de canviar contingut
                 setTimeout(() => {
                     loadNode(opt.targetNodeId);
                 }, 500);
             } else {
-                // Tall sec
                 loadNode(opt.targetNodeId);
             }
         }
 
-        // INICIAR APLICACIÓ
         window.onload = init;
 
     </script>
