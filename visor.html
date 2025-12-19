@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualitzador InterVideo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #000;
+            color: #fff;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+            font-family: sans-serif;
+        }
+
+        #player-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .interactive-btn {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            cursor: pointer;
+            border: none;
+            outline: none;
+            transition: transform 0.2s, opacity 0.3s;
+            z-index: 10;
+            display: none; /* Ocult per defecte */
+            white-space: nowrap;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+        }
+
+        .interactive-btn.visible {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .interactive-btn:hover {
+            transform: translate(-50%, -50%) scale(1.05);
+            z-index: 20;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border-left-color: #3b82f6;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #error-message {
+            display: none;
+            text-align: center;
+            color: #ef4444;
+            background: rgba(0,0,0,0.8);
+            padding: 2rem;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="player-container">
+        <div id="loading" class="spinner"></div>
+        <div id="error-message">
+            <h2 class="text-xl font-bold mb-2">Error</h2>
+            <p id="error-text"></p>
+        </div>
+        <!-- El contingut (video/iframe i botons) s'injectarà aquí -->
+    </div>
+
+    <script>
+        // CONFIGURACIÓ
+        const JSON_FILE = 'project.json'; 
+        
+        // ESTAT
+        let projectData = null;
+        let currentNode = null;
+        let clickedOptions = new Set(); // Per recordar opcions d'un sol ús
+        let videoElement = null; // Referència al vídeo actual
+
+        // ELEMENTS DOM
+        const container = document.getElementById('player-container');
+        const loading = document.getElementById('loading');
+        const errorDiv = document.getElementById('error-message');
+        const errorText = document.getElementById('error-text');
+
+        // --- FUNCIONS AUXILIARS ---
+
+        function hexToRgba(hex, alpha = 1) {
+            let r = 0, g = 0, b = 0;
+            if (!hex) return `rgba(0,0,0,${alpha})`;
+            if (hex.length === 4) {
+                r = parseInt(hex[1] + hex[1], 16);
+                g = parseInt(hex[2] + hex[2], 16);
+                b = parseInt(hex[3] + hex[3], 16);
+            } else if (hex.length === 7) {
+                r = parseInt(hex[1] + hex[2], 16);
+                g = parseInt(hex[3] + hex[4], 16);
+                b = parseInt(hex[5] + hex[6], 16);
+            }
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function getYoutubeId(url) {
+            if (!url) return null;
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        }
+
+        function showError(msg) {
+            loading.style.display = 'none';
+            errorDiv.style.display = 'block';
+            errorText.textContent = msg;
+        }
+
+        // --- NUCLI DEL REPRODUCTOR ---
+
+        async function init() {
+            try {
+                const response = await fetch(JSON_FILE);
+                if (!response.ok) throw new Error(`No s'ha pogut carregar ${JSON_FILE}`);
+                projectData = await response.json();
+                
+                if (!projectData.nodes || projectData.nodes.length === 0) {
+                    throw new Error("El fitxer JSON no conté escenes.");
+                }
+
+                const startId = projectData.startNodeId || projectData.nodes[0].id;
+                loadNode(startId);
+
+            } catch (err) {
+                showError(err.message + ". Assegura't que 'project.json' està a la mateixa carpeta.");
+            }
+        }
+
+        function loadNode(nodeId) {
+            const node = projectData.nodes.find(n => n.id === nodeId);
+            if (!node) {
+                showError("Node no trobat: " + nodeId);
+                return;
+            }
+
+            currentNode = node;
+            renderScene(node);
+        }
+
+        function renderScene(node) {
+            // Netejar contenidor (mantenint loader i error)
+            // Eliminem elements anteriors
+            Array.from(container.children).forEach(child => {
+                if (child.id !== 'loading' && child.id !== 'error-message') {
+                    container.removeChild(child);
+                }
+            });
+
+            loading.style.display = 'block';
+            
+            const youtubeId = getYoutubeId(node.videoUrl);
+
+            // 1. RENDERITZAR VIDEO / IFRAME
+            if (youtubeId) {
+                const iframe = document.createElement('iframe');
+                iframe.src = `https://www.youtube.com/embed/${youtubeId}?rel=0&controls=0&autoplay=1&modestbranding=1`;
+                iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+                iframe.allowFullscreen = true;
+                iframe.onload = () => loading.style.display = 'none';
+                container.appendChild(iframe);
+                
+                // Per a YouTube, mostrem els botons directament (sense timeupdate)
+                renderButtons(node, true);
+
+            } else {
+                const video = document.createElement('video');
+                video.src = node.videoUrl; // La URL ja ve amb "videos/" si s'ha desat bé
+                video.playsInline = true;
+                video.autoplay = true;
+                video.controls = false; // Interactiu pur
+                
+                video.oncanplay = () => loading.style.display = 'none';
+                
+                video.onerror = (e) => {
+                    loading.style.display = 'none';
+                    const err = video.error;
+                    let msg = "Error carregant el vídeo.";
+                    if (err && err.code === 4) msg = `Vídeo no trobat: ${node.videoUrl}. Verifica la carpeta 'videos'.`;
+                    showError(msg);
+                };
+
+                // Gestió del temps per mostrar botons
+                video.ontimeupdate = () => checkButtonVisibility(video.currentTime);
+                
+                // Si el vídeo acaba, què fem? (Opcional: loop o stop)
+                // video.onended = () => { ... }
+
+                container.appendChild(video);
+                videoElement = video;
+                
+                renderButtons(node, false);
+                
+                // Forçar play per si autoplay falla (polítiques navegador)
+                video.play().catch(e => {
+                    // Si falla autoplay, mostrem un botó gran de "Play" (opcional, aquí simplificat)
+                    console.log("Autoplay bloquejat, l'usuari ha d'interactuar.");
+                    video.controls = true; // Fallback
+                });
+            }
+        }
+
+        function renderButtons(node, isAlwaysVisible) {
+            const buttonsContainer = document.createElement('div');
+            buttonsContainer.style.position = 'absolute';
+            buttonsContainer.style.top = '0';
+            buttonsContainer.style.left = '0';
+            buttonsContainer.style.width = '100%';
+            buttonsContainer.style.height = '100%';
+            buttonsContainer.style.pointerEvents = 'none'; // Deixar passar clics al video si cal
+            buttonsContainer.id = 'buttons-layer';
+
+            node.options.forEach(opt => {
+                // Si és singleUse i ja s'ha clicat, l'ignorem
+                if (opt.singleUse && clickedOptions.has(opt.id)) return;
+
+                const btn = document.createElement('button');
+                btn.className = 'interactive-btn';
+                btn.textContent = opt.label;
+                btn.dataset.id = opt.id;
+                btn.dataset.startTime = opt.startTime;
+                btn.dataset.endTime = opt.endTime || 99999;
+                
+                // Aplicar estils
+                const s = opt.style;
+                const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
+                
+                btn.style.top = `${s.top}%`;
+                btn.style.left = `${s.left}%`;
+                btn.style.width = typeof s.width === 'number' ? `${s.width}px` : s.width;
+                btn.style.height = typeof s.height === 'number' ? `${s.height}px` : s.height;
+                btn.style.fontSize = `${s.fontSize}px`;
+                btn.style.color = s.color;
+                btn.style.backgroundColor = bgColor;
+                btn.style.padding = `${s.padding}px`;
+                btn.style.borderRadius = `${s.borderRadius}px`;
+                btn.style.fontFamily = s.fontFamily;
+                
+                btn.style.pointerEvents = 'auto'; // Reactivar clics al botó
+
+                // Si és YouTube o no depèn del temps
+                if (isAlwaysVisible) {
+                    btn.classList.add('visible');
+                }
+
+                btn.onclick = () => handleOptionClick(opt);
+
+                buttonsContainer.appendChild(btn);
+            });
+
+            container.appendChild(buttonsContainer);
+        }
+
+        function checkButtonVisibility(currentTime) {
+            const buttons = document.querySelectorAll('.interactive-btn');
+            buttons.forEach(btn => {
+                const start = parseFloat(btn.dataset.startTime);
+                const end = parseFloat(btn.dataset.endTime);
+                
+                if (currentTime >= start && currentTime <= end) {
+                    btn.classList.add('visible');
+                } else {
+                    btn.classList.remove('visible');
+                }
+            });
+        }
+
+        function handleOptionClick(opt) {
+            if (opt.singleUse) {
+                clickedOptions.add(opt.id);
+            }
+            loadNode(opt.targetNodeId);
+        }
+
+        // INICIAR APLICACIÓ
+        window.onload = init;
+
+    </script>
+</body>
+</html>
