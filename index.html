@@ -19,7 +19,6 @@
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         
-        /* Loader inicial per si triga a carregar React */
         #root:empty::before {
             content: 'Carregant editor...';
             display: flex;
@@ -28,6 +27,21 @@
             align-items: center;
             justify-content: center;
             color: #6b7280;
+        }
+
+        /* Tooltip style */
+        .hotspot-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 100;
+            transform: translate(-50%, -100%);
+            margin-top: -8px;
         }
     </style>
 </head>
@@ -46,7 +60,7 @@
           Download, FolderOpen, Flag, PlayCircle,
           Copy, Clipboard, AlertCircle, Ghost, Film, FileUp, AlertTriangle, CheckCircle, Youtube,
           Database, Zap, Eye, EyeOff, Layers, Package, Lock,
-          Undo, Redo
+          Undo, Redo, MapPin, Target, Image
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Utilitats ---
@@ -66,17 +80,60 @@
         };
 
         const getVideoSrc = (url) => {
-          if (!url) return '';
-          if (url.match(/^(http|https|blob):/) || url.startsWith('www.')) return url;
-          if (url.startsWith('videos/')) return url;
-          return `videos/${url}`;
+            if (!url) return '';
+            if (url.match(/^(http|https|blob):/) || url.startsWith('www.')) return url;
+            if (url.startsWith('videos/')) return url;
+            return `videos/${url}`;
         };
 
         const getYoutubeId = (url) => {
-          if (!url) return null;
-          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-          const match = url.match(regExp);
-          return (match && match[2].length === 11) ? match[2] : null;
+            if (!url) return null;
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+            const match = url.match(regExp);
+            return (match && match[2].length === 11) ? match[2] : null;
+        };
+
+        const isImageFile = (url) => {
+            if (!url) return false;
+            return /\.(jpg|jpeg|png|gif|webp)$/i.test(url) || url.startsWith('data:image');
+        };
+
+        // --- LÒGICA D'INTERPOLACIÓ DE KEYFRAMES (POSICIÓ + MIDA) ---
+        const getInterpolatedStyle = (opt, currentTime) => {
+            if (!opt.useKeyframes || !opt.keyframes || opt.keyframes.length === 0) {
+                return opt.style;
+            }
+            const sortedKeys = [...opt.keyframes].sort((a, b) => a.time - b.time);
+            const getVal = (k, prop) => k[prop] !== undefined ? k[prop] : opt.style[prop];
+
+            if (currentTime <= sortedKeys[0].time) {
+                const k = sortedKeys[0];
+                return { ...opt.style, left: k.left, top: k.top, width: getVal(k, 'width'), height: getVal(k, 'height') };
+            }
+            if (currentTime >= sortedKeys[sortedKeys.length - 1].time) {
+                const last = sortedKeys[sortedKeys.length - 1];
+                return { ...opt.style, left: last.left, top: last.top, width: getVal(last, 'width'), height: getVal(last, 'height') };
+            }
+            for (let i = 0; i < sortedKeys.length - 1; i++) {
+                const k1 = sortedKeys[i];
+                const k2 = sortedKeys[i + 1];
+                if (currentTime >= k1.time && currentTime < k2.time) {
+                    const range = k2.time - k1.time;
+                    const progress = (currentTime - k1.time) / range;
+                    const l1 = k1.left, l2 = k2.left;
+                    const t1 = k1.top, t2 = k2.top;
+                    const w1 = getVal(k1, 'width'), w2 = getVal(k2, 'width');
+                    const h1 = getVal(k1, 'height'), h2 = getVal(k2, 'height');
+
+                    const currentLeft = l1 + (l2 - l1) * progress;
+                    const currentTop = t1 + (t2 - t1) * progress;
+                    const currentWidth = w1 + (w2 - w1) * progress;
+                    const currentHeight = h1 + (h2 - h1) * progress;
+
+                    return { ...opt.style, left: currentLeft, top: currentTop, width: currentWidth, height: currentHeight };
+                }
+            }
+            return opt.style;
         };
 
         const loadJSZip = () => {
@@ -235,11 +292,13 @@
                                 {opt.singleUse && <Ghost size={10} className="text-purple-400" title="Un sol ús"/>}
                                 {opt.condition && opt.condition.variable && <Lock size={10} className="text-yellow-400" title={`Condició: ${opt.condition.variable}`}/>}
                                 {opt.effects && opt.effects.length > 0 && <Zap size={10} className="text-blue-400" title="Canvi variable"/>}
+                                {opt.useKeyframes && <MapPin size={10} className="text-orange-400" title="Animació"/>}
                             </div>
 
                             <ArrowRightCircle size={12} className="text-gray-500 shrink-0" />
+                            {/* FILTER: Exclude current node from options */}
                             <select value={opt.targetNodeId} onChange={(e) => updateNodeOption(node.id, opt.id, 'targetNodeId', e.target.value)} className="flex-1 bg-gray-800 text-[10px] text-gray-300 border-none rounded py-0.5 px-1 h-5 cursor-pointer">
-                                {nodes.map(n => <option key={n.id} value={n.id}>{n.title}</option>)}
+                                {nodes.filter(n => n.id !== node.id).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}
                                 {!nodes.find(n => n.id === opt.targetNodeId) && <option value="" disabled>Destí esborrat</option>}
                             </select>
                             <button onClick={() => deleteNodeOption(node.id, opt.id)} className="text-gray-600 hover:text-red-400"><Trash2 size={12} /></button>
@@ -272,6 +331,7 @@
           const [mode, setMode] = useState('edit'); 
           const [currentNodeId, setCurrentNodeId] = useState(null); 
           const [selectedOptionId, setSelectedOptionId] = useState(null);
+          const [hoveredOptionId, setHoveredOptionId] = useState(null); 
           
           // Video State
           const [isPlaying, setIsPlaying] = useState(false);
@@ -309,10 +369,13 @@
           const fileInputRef = useRef(null);
           const projectInputRef = useRef(null); 
           const bulkVideoInputRef = useRef(null); 
+          const requestRef = useRef();
+          const lastTimeRef = useRef(Date.now()); // For manual timing
 
           const activeNodeId = mode === 'preview' ? currentNodeId : selectedNodeId;
           const activeNode = nodes.find(n => n.id === activeNodeId); 
           const youtubeId = activeNode ? getYoutubeId(activeNode.videoUrl) : null;
+          const isImage = activeNode ? isImageFile(activeNode.videoUrl) : false;
 
           // --- AUTO-SAVE ---
           useEffect(() => {
@@ -357,6 +420,51 @@
             setStartNodeId(next.startNodeId);
           }, [nodes, variables, startNodeId]);
 
+          // --- ANIMATION LOOP (Updated for Images) ---
+          const animate = () => {
+             const now = Date.now();
+             const dt = (now - lastTimeRef.current) / 1000;
+             lastTimeRef.current = now;
+
+             if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended) {
+                 setCurrentTime(videoRef.current.currentTime);
+             } else if (isPlaying && isImage) {
+                 // Manual increment for images in preview/play mode
+                 setCurrentTime(prev => {
+                     const next = prev + dt;
+                     return next >= 10 ? 10 : next; // Default image duration 10s
+                 });
+             }
+             requestRef.current = requestAnimationFrame(animate);
+          };
+
+          useEffect(() => {
+              requestRef.current = requestAnimationFrame(animate);
+              return () => cancelAnimationFrame(requestRef.current);
+          }, [isPlaying, isImage]); // Dependencies help but ref usage is key
+
+          // --- TOGGLE PLAY ---
+          const togglePlay = useCallback(() => {
+              if (youtubeId) return;
+              
+              if (isImage) {
+                  setIsPlaying(p => !p);
+                  return;
+              }
+
+              if (videoRef.current) {
+                  if (videoRef.current.paused) {
+                      const playPromise = videoRef.current.play();
+                      if (playPromise !== undefined) {
+                          playPromise.then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+                      }
+                  } else {
+                      videoRef.current.pause();
+                      setIsPlaying(false);
+                  }
+              }
+          }, [youtubeId, isImage]);
+
           // --- KEYBOARD SHORTCUTS ---
           useEffect(() => {
             const handleKeyDown = (e) => {
@@ -373,10 +481,30 @@
                     redo();
                     return;
                 }
+                // SPACE: Play/Pause
                 if (e.code === 'Space') {
                     e.preventDefault();
                     togglePlay();
                 }
+                
+                // ARROWS: Frame-by-frame navigation
+                if (e.code === 'ArrowLeft' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (isImage) {
+                         setCurrentTime(t => Math.max(0, t - 0.1));
+                    } else if (videoRef.current) {
+                         videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 0.1);
+                    }
+                }
+                if (e.code === 'ArrowRight' && !e.shiftKey) {
+                    e.preventDefault();
+                     if (isImage) {
+                         setCurrentTime(t => Math.min(duration, t + 0.1));
+                    } else if (videoRef.current) {
+                         videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 0.1);
+                    }
+                }
+
                 if (e.code === 'Delete' || e.code === 'Backspace') {
                     if (mode === 'graph' && selectedNodeId) {
                         setNodeToDelete(selectedNodeId);
@@ -388,12 +516,13 @@
                         setSelectedOptionId(null);
                     }
                 }
-                if (mode === 'edit' && selectedOptionId && activeNode) {
+                
+                if (mode === 'edit' && selectedOptionId && activeNode && e.shiftKey) {
                     const opt = activeNode.options.find(o => o.id === selectedOptionId);
                     if (opt) {
                         e.preventDefault();
                         saveHistory();
-                        const step = e.shiftKey ? 5 : 0.5; 
+                        const step = 0.5; 
                         let newLeft = opt.style.left;
                         let newTop = opt.style.top;
                         if (e.code === 'ArrowLeft') newLeft -= step;
@@ -402,14 +531,19 @@
                         if (e.code === 'ArrowDown') newTop += step;
                         newLeft = Math.max(0, Math.min(100, newLeft));
                         newTop = Math.max(0, Math.min(100, newTop));
-                        const updatedOptions = activeNode.options.map(o => o.id === selectedOptionId ? { ...o, style: { ...o.style, left: newLeft, top: newTop } } : o);
-                        updateNode(activeNode.id, 'options', updatedOptions);
+                        
+                        if(opt.useKeyframes) {
+                            addKeyframe(opt, {left: newLeft, top: newTop});
+                        } else {
+                            const updatedOptions = activeNode.options.map(o => o.id === selectedOptionId ? { ...o, style: { ...o.style, left: newLeft, top: newTop } } : o);
+                            updateNode(activeNode.id, 'options', updatedOptions);
+                        }
                     }
                 }
             };
             window.addEventListener('keydown', handleKeyDown);
             return () => window.removeEventListener('keydown', handleKeyDown);
-          }, [mode, selectedNodeId, selectedOptionId, activeNode, undo, redo, nodes, variables, startNodeId]);
+          }, [mode, selectedNodeId, selectedOptionId, activeNode, undo, redo, nodes, variables, startNodeId, duration, isImage, togglePlay]);
 
 
           // --- Reset & Transition Logic ---
@@ -426,66 +560,29 @@
             }
           }, [activeNodeId, mode]);
 
+          // --- MEDIA LOADING EFFECT (FIXED) ---
           useEffect(() => {
-            const video = videoRef.current;
-            if (!video || youtubeId) return;
-            const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-            const handleLoadedMetadata = () => {
-              setDuration(video.duration);
-              setVideoError(null); 
-              setShowMissingFilesModal(false);
-            };
-            const handleError = (e) => {
-                const error = e.target.error;
-                let msg = "No s'ha pogut carregar el vídeo.";
-                if (error) {
-                    if (error.code === 4) {
-                        msg = "Vídeo no trobat. Enllaça els fitxers locals.";
-                        setShowMissingFilesModal(true);
-                    } else if (error.code === 3) {
-                        msg = "Error de descodificació.";
-                    }
+            if (isImage) {
+                // Image handling
+                setDuration(10); // Default duration for images
+                setVideoError(null);
+                setShowMissingFilesModal(false);
+                setIsPlaying(true); // AUTOPLAY ON IMAGE LOAD
+                setCurrentTime(0);
+            } else if (videoRef.current && !youtubeId) {
+                // Video handling
+                // We ONLY call load if the source effectively changed or we just mounted
+                videoRef.current.load();
+                if (mode === 'preview') {
+                    videoRef.current.play().catch(e => console.log("Autoplay blocked", e));
+                    setIsPlaying(true);
+                } else {
+                    setIsPlaying(false);
                 }
-                setVideoError(msg);
-                setIsPlaying(false);
-            };
-            video.addEventListener('timeupdate', handleTimeUpdate);
-            video.addEventListener('loadedmetadata', handleLoadedMetadata);
-            video.addEventListener('error', handleError);
-            return () => {
-              video.removeEventListener('timeupdate', handleTimeUpdate);
-              video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-              video.removeEventListener('error', handleError);
-            };
-          }, [activeNodeId, mode, activeNode, youtubeId]);
-
-          useEffect(() => {
-            if (videoRef.current && !youtubeId) {
-              videoRef.current.load();
-              if (mode === 'preview') {
-                videoRef.current.play().catch(e => console.log("Auto-play blocked or waiting", e));
-                setIsPlaying(true);
-              } else {
-                setIsPlaying(false);
-              }
+                setCurrentTime(0);
             }
-            setCurrentTime(0);
-          }, [activeNodeId, mode, activeNode, fileBlobs, youtubeId]); 
-
-          const togglePlay = () => {
-            if (youtubeId) return; 
-            if (videoRef.current) {
-              if (isPlaying) {
-                videoRef.current.pause();
-                setIsPlaying(false);
-              } else {
-                const playPromise = videoRef.current.play();
-                if (playPromise !== undefined) {
-                    playPromise.then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-                }
-              }
-            }
-          };
+          }, [activeNodeId, mode, activeNode?.videoUrl, fileBlobs, youtubeId, isImage]); 
+          // CRITICAL FIX: Removed `activeNode` object from deps to prevent reload on drag.
 
           // --- VARIABLES SYSTEM ---
           const addVariable = () => {
@@ -568,7 +665,7 @@
               const projectData = { version: '2.0', startNodeId, nodes, variables };
               zip.file("project.json", JSON.stringify(projectData, null, 2));
               
-              const viewerContent = `<!DOCTYPE html><html lang="ca"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Visualitzador</title><style>body{background:#000;margin:0;overflow:hidden;font-family:sans-serif}#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;background:black}video,iframe{width:100%;height:100%;object-fit:contain}.btn{position:absolute;transform:translate(-50%,-50%);cursor:pointer;display:none;opacity:0;transition:opacity 0.5s,transform 0.2s}.btn.visible{display:flex;opacity:1}.btn:hover{transform:translate(-50%,-50%)scale(1.05)}.fade-overlay{position:absolute;inset:0;background:black;opacity:0;pointer-events:none;transition:opacity 0.5s;z-index:100}.fade-overlay.active{opacity:1;pointer-events:auto}</style></head><body><div id="container"></div><script>/* Lògica del reproductor */ alert("Utilitza un visualitzador complet (index.html).");<\/script></body></html>`;
+              const viewerContent = `<!DOCTYPE html><html lang="ca"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Visualitzador</title><style>body{background:#000;margin:0;overflow:hidden;font-family:sans-serif}#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;background:black}video,iframe,img{width:100%;height:100%;object-fit:contain}.btn{position:absolute;transform:translate(-50%,-50%);cursor:pointer;display:none;opacity:0;transition:opacity 0.5s,transform 0.2s}.btn.visible{display:flex;opacity:1}.btn:hover{transform:translate(-50%,-50%)scale(1.05)}.fade-overlay{position:absolute;inset:0;background:black;opacity:0;pointer-events:none;transition:opacity 0.5s;z-index:100}.fade-overlay.active{opacity:1;pointer-events:auto}.hotspot-tooltip{position:absolute;background:rgba(0,0,0,0.8);color:white;padding:4px 8px;border-radius:4px;font-size:12px;pointer-events:none;white-space:nowrap;z-index:101;transform:translate(-50%,-100%);margin-top:-8px}</style></head><body><div id="container"></div><script>/* Lògica del reproductor */ alert("Utilitza un visualitzador complet (index.html).");<\/script></body></html>`;
               zip.file("index.html", viewerContent);
               zip.folder("videos");
               zip.file("LLEGEIX-ME.txt", "Posa els teus fitxers de vídeo a la carpeta 'videos'.");
@@ -586,7 +683,8 @@
             const newBlobs = {};
             let count = 0;
             files.forEach(file => {
-                if (file.type.startsWith('video/')) {
+                 // Accept video and image types
+                if (file.type.startsWith('video/') || file.type.startsWith('image/')) {
                     const relativeKey = `videos/${file.name}`;
                     newBlobs[relativeKey] = URL.createObjectURL(file);
                     count++;
@@ -650,6 +748,10 @@
               startTime: Math.floor(currentTime),
               endTime: duration || Math.floor(currentTime) + 10,
               singleUse: false,
+              isHotspot: false, 
+              hoverText: '',    
+              useKeyframes: false, 
+              keyframes: [],    
               condition: null, 
               effects: [], 
               style: initialStyle
@@ -682,6 +784,33 @@
           const removeOption = (optionId) => {
               saveHistory();
               updateNode(activeNode.id, 'options', activeNode.options.filter(opt => opt.id !== optionId));
+          };
+
+          // --- KEYFRAME LOGIC ---
+          const addKeyframe = (opt, coords) => {
+              // Si no passem coords, usem actual
+              const left = coords ? coords.left : opt.style.left;
+              const top = coords ? coords.top : opt.style.top;
+              const width = coords ? coords.width : opt.style.width; 
+              const height = coords ? coords.height : opt.style.height; 
+              
+              const newKeyframe = { time: currentTime, left, top, width, height };
+              const existing = opt.keyframes || [];
+              const filtered = existing.filter(k => Math.abs(k.time - currentTime) > 0.1);
+              updateOption(opt.id, 'keyframes', [...filtered, newKeyframe].sort((a,b) => a.time - b.time));
+          };
+          
+          const deleteKeyframe = (optId, time) => {
+              saveHistory();
+              const opt = activeNode.options.find(o => o.id === optId);
+              if(!opt) return;
+              const newKeyframes = (opt.keyframes || []).filter(k => Math.abs(k.time - time) > 0.01);
+              updateOption(optId, 'keyframes', newKeyframes);
+          };
+          
+          const seekToKeyframe = (time) => {
+              setCurrentTime(time);
+              if (videoRef.current) videoRef.current.currentTime = time;
           };
 
           // --- INTERACTION ---
@@ -726,10 +855,11 @@
               if (!rect) return;
               const deltaX = e.clientX - dragState.startX;
               const deltaY = e.clientY - dragState.startY;
-              batchUpdateOptionStyles(dragState.targetId, { 
-                  left: Math.max(0, Math.min(100, dragState.initialVal.left + (deltaX / rect.width) * 100)), 
-                  top: Math.max(0, Math.min(100, dragState.initialVal.top + (deltaY / rect.height) * 100)) 
-              });
+              
+              const newLeft = Math.max(0, Math.min(100, dragState.initialVal.left + (deltaX / rect.width) * 100));
+              const newTop = Math.max(0, Math.min(100, dragState.initialVal.top + (deltaY / rect.height) * 100));
+
+              batchUpdateOptionStyles(dragState.targetId, { left: newLeft, top: newTop });
             }
             if (dragState.type === 'resize') {
               batchUpdateOptionStyles(dragState.targetId, { 
@@ -760,11 +890,23 @@
               }
             }
           }, [dragState, activeNode, duration]);
-          const handleGlobalMouseUp = useCallback(() => setDragState({ isDragging: false, type: null }), []);
+
+          const handleGlobalMouseUp = useCallback(() => {
+              // SAVE KEYFRAME ON DROP/RESIZE if using keyframes
+              if (dragState.isDragging && (dragState.type === 'move' || dragState.type === 'resize') && activeNode) {
+                  const opt = activeNode.options.find(o => o.id === dragState.targetId);
+                  if (opt && opt.useKeyframes) {
+                      addKeyframe(opt);
+                  }
+              }
+              setDragState({ isDragging: false, type: null });
+          }, [dragState, activeNode, currentTime]);
+
           useEffect(() => {
             if (dragState.isDragging) { window.addEventListener('mousemove', handleGlobalMouseMove); window.addEventListener('mouseup', handleGlobalMouseUp); }
             return () => { window.removeEventListener('mousemove', handleGlobalMouseMove); window.removeEventListener('mouseup', handleGlobalMouseUp); };
           }, [dragState, handleGlobalMouseMove, handleGlobalMouseUp]);
+
           const handleTimelineClick = (e) => {
             if (dragState.isDragging || youtubeId) return;
             const rect = timelineTrackRef.current?.getBoundingClientRect();
@@ -819,10 +961,13 @@
                   <>
                     {mode === 'edit' && (
                       <aside className="w-56 bg-gray-800 border-r border-gray-700 flex flex-col shrink-0">
-                        <div className="p-4 border-b border-gray-700"><h2 className="font-semibold text-gray-300">Escenes</h2><button onClick={addNode} className="text-blue-400 absolute right-4 top-4"><Plus size={20} /></button></div>
+                        <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                            <h2 className="font-semibold text-gray-300">Escenes</h2>
+                            <button onClick={addNode} className="text-blue-400 hover:text-blue-300"><Plus size={20} /></button>
+                        </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-2">
                           {nodes.map(node => (
-                            <div key={node.id} onClick={() => setSelectedNodeId(node.id)} className={`p-3 rounded-lg cursor-pointer border-l-4 ${selectedNodeId === node.id ? 'bg-gray-750' : 'bg-gray-800 border-transparent'}`} style={{ borderLeftColor: node.color }}>
+                            <div key={node.id} onClick={() => setSelectedNodeId(node.id)} className={`p-3 rounded-lg cursor-pointer border-l-4 ${selectedNodeId === node.id ? 'bg-blue-900/50 ring-1 ring-blue-500/50' : 'bg-gray-800 border-transparent hover:bg-gray-700'}`} style={{ borderLeftColor: node.color }}>
                               <h3 className="font-medium text-sm text-gray-200">{node.title}</h3>
                               {startNodeId === node.id && <span className="text-[10px] text-green-500 font-mono">★ INICI</span>}
                             </div>
@@ -837,13 +982,15 @@
                             <div className="text-gray-500 text-center"><Film size={64} className="mb-4 opacity-20 mx-auto"/><p>Selecciona una escena</p></div>
                         ) : youtubeId ? (
                             <iframe src={`https://www.youtube.com/embed/${youtubeId}?rel=0&controls=1&autoplay=0`} className="w-full h-full" frameBorder="0" allowFullScreen></iframe>
+                        ) : isImage ? (
+                             <img src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} className="w-full h-full object-contain" />
                         ) : activeNode.videoUrl ? (
                           <video 
                             ref={videoRef} className="w-full h-full object-contain" 
                             src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} 
                             onClick={mode === 'preview' ? togglePlay : null} loop={mode === 'edit'} playsInline preload="auto"
                           />
-                        ) : <div className="text-center text-gray-500"><ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" /><button onClick={() => fileInputRef.current?.click()} className="text-blue-400 underline">Carregar Vídeo</button></div>}
+                        ) : <div className="text-center text-gray-500"><ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" /><button onClick={() => fileInputRef.current?.click()} className="text-blue-400 underline">Carregar Mèdia</button></div>}
 
                         {/* TRANSITION OVERLAY */}
                         <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity duration-500 z-[100] ${isTransitioning ? 'opacity-100' : 'opacity-0'}`}></div>
@@ -865,19 +1012,55 @@
                             const opacity = (mode === 'edit' && !isVisible) ? 0.3 : 1;
                             if (!shouldShow) return null;
                             const isSelected = dragState.targetId === opt.id || selectedOptionId === opt.id;
-                            const finalBgColor = hexToRgba(opt.style.backgroundColor, opt.style.bgOpacity !== undefined ? opt.style.bgOpacity : 1);
+                            
+                            // CALCULATE POSITION
+                            let currentStyle = opt.style;
+                            if (opt.useKeyframes && isPlaying && mode === 'preview') {
+                                currentStyle = getInterpolatedStyle(opt, currentTime);
+                            } else if (opt.useKeyframes && mode === 'edit') {
+                                // En edit, si estem arrossegant, ja veiem la posició de l'estil actual (actualitzat per globalMove)
+                                // Si NO estem arrossegant, mostrem la interpolada per al temps actual
+                                if (!(dragState.isDragging && dragState.targetId === opt.id)) {
+                                    currentStyle = getInterpolatedStyle(opt, currentTime);
+                                }
+                            }
+
+                            const finalBgColor = hexToRgba(currentStyle.backgroundColor, currentStyle.bgOpacity !== undefined ? currentStyle.bgOpacity : 1);
+                            
+                            const isHotspotInvisible = mode === 'preview' && opt.isHotspot;
+                            const displayOpacity = isHotspotInvisible ? 0 : 1;
+                            const hotspotBorder = (mode === 'edit' && opt.isHotspot) ? '2px dashed rgba(255,255,255,0.5)' : 'none';
 
                             return (
-                              <div key={opt.id} className={`absolute pointer-events-auto group transition-opacity duration-500 ${shouldShow ? 'opacity-100' : 'opacity-0'}`} style={{ top: `${opt.style.top}%`, left: `${opt.style.left}%`, width: opt.style.width, height: opt.style.height, transform: 'translate(-50%, -50%)', opacity: opacity }}>
+                              <div 
+                                key={opt.id} 
+                                className={`absolute pointer-events-auto group transition-opacity duration-500 ${shouldShow ? 'opacity-100' : 'opacity-0'}`} 
+                                style={{ top: `${currentStyle.top}%`, left: `${currentStyle.left}%`, width: currentStyle.width, height: currentStyle.height, transform: 'translate(-50%, -50%)', opacity: opacity * displayOpacity }}
+                                onMouseEnter={() => setHoveredOptionId(opt.id)}
+                                onMouseLeave={() => setHoveredOptionId(null)}
+                              >
                                  <button onMouseDown={(e) => handleButtonMouseDown(e, opt)} onClick={() => handleOptionInteraction(opt)}
                                     className={`w-full h-full flex items-center justify-center text-center overflow-hidden transition-transform relative 
-                                    ${mode === 'edit' ? 'cursor-move' : 'hover:scale-105'}
-                                    ${isSelected ? 'ring-2 ring-yellow-400 shadow-2xl z-50' : 'border border-dashed border-transparent hover:border-white/50'}
+                                    ${mode === 'edit' ? 'cursor-move' : 'hover:scale-105 cursor-pointer'}
+                                    ${isSelected ? 'ring-2 ring-yellow-400 shadow-2xl z-50' : ''}
                                     `}
-                                    style={{ fontSize: `${opt.style.fontSize}px`, color: opt.style.color, backgroundColor: finalBgColor, padding: `${opt.style.padding}px`, borderRadius: opt.style.borderRadius, fontFamily: opt.style.fontFamily }}>
+                                    style={{ 
+                                        fontSize: `${currentStyle.fontSize}px`, 
+                                        color: currentStyle.color, 
+                                        backgroundColor: finalBgColor, 
+                                        padding: `${currentStyle.padding}px`, 
+                                        borderRadius: currentStyle.borderRadius, 
+                                        fontFamily: currentStyle.fontFamily,
+                                        border: isSelected ? undefined : hotspotBorder
+                                    }}>
                                     {mode === 'edit' && opt.singleUse && (<div className="absolute top-1 right-1 opacity-70"><Ghost size={12} className="text-white drop-shadow-md"/></div>)}
-                                    {opt.label}
+                                    {!opt.isHotspot && opt.label} 
                                   </button>
+                                  
+                                  {mode === 'preview' && hoveredOptionId === opt.id && opt.hoverText && (
+                                      <div className="hotspot-tooltip">{opt.hoverText}</div>
+                                  )}
+
                                   {mode === 'edit' && (<div onMouseDown={(e) => handleResizeMouseDown(e, opt)} className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-nwse-resize z-50 opacity-0 group-hover:opacity-100 rounded-tl" />)}
                               </div>
                             );
@@ -903,6 +1086,20 @@
                                       return (
                                           <div key={opt.id} onClick={(e) => { e.stopPropagation(); setSelectedOptionId(opt.id); }} className={`h-8 relative w-full bg-gray-800/50 rounded mb-1 border ${isSelected ? 'border-yellow-500' : 'border-gray-700/50'}`}>
                                               <div className="absolute left-2 top-0 bottom-0 flex items-center text-[10px] text-gray-600 pointer-events-none z-0 w-32 truncate select-none">{opt.label}</div>
+                                              
+                                              {opt.useKeyframes && opt.keyframes && opt.keyframes.map((kf, ki) => {
+                                                  const isCurrent = Math.abs(kf.time - currentTime) < 0.1;
+                                                  return (
+                                                      <div 
+                                                          key={ki} 
+                                                          onClick={(e) => { e.stopPropagation(); seekToKeyframe(kf.time); }}
+                                                          className={`absolute top-1/2 w-2 h-2 transform -translate-x-1/2 -translate-y-1/2 rotate-45 z-30 cursor-pointer ${isCurrent ? 'bg-red-500 scale-125' : 'bg-orange-400 hover:bg-orange-300'}`} 
+                                                          style={{ left: `${(kf.time / duration) * 100}%` }} 
+                                                          title={`Keyframe: ${kf.time.toFixed(1)}s`}
+                                                      ></div>
+                                                  );
+                                              })}
+
                                               <div className="absolute top-1 bottom-1 bg-blue-600/60 border border-blue-400 rounded cursor-pointer group flex items-center justify-between px-1 hover:bg-blue-600/80 z-10" style={{ left: `${leftPct}%`, width: `${widthPct}%` }} onMouseDown={(e) => handleTimelineItemMouseDown(e, opt, 'timeline-move')}>
                                                   <div className="w-2 h-full bg-blue-400/30 cursor-w-resize hover:bg-white z-20 shrink-0" onMouseDown={(e) => handleTimelineItemMouseDown(e, opt, 'timeline-start')}></div>
                                                   <span className="text-[10px] text-white font-mono drop-shadow-md truncate pointer-events-none select-none px-1 min-w-0 flex-1 text-center flex items-center justify-center gap-1">{opt.singleUse && <Ghost size={8}/>}{opt.label}</span>
@@ -917,7 +1114,7 @@
                       )}
                     </main>
 
-                    {/* INSPECTOR AMB PESTANYES COMPACTES */}
+                    {/* INSPECTOR */}
                     {mode === 'edit' && activeNode && (
                       <aside className="w-80 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 overflow-hidden">
                         <div className="flex border-b border-gray-700">
@@ -926,30 +1123,19 @@
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                          {/* TAB: ESCENA */}
                           {activeTab === 'properties' && (
                               <>
+                                <div><label className="block text-xs font-medium text-gray-500 uppercase mb-1">Títol</label><input type="text" value={activeNode.title} onChange={(e) => updateNode(activeNode.id, 'title', e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm outline-none"/></div>
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Títol</label>
-                                    <input type="text" value={activeNode.title} onChange={(e) => updateNode(activeNode.id, 'title', e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm outline-none"/>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Vídeo</label>
+                                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Vídeo / Imatge</label>
                                     <input type="text" value={activeNode.videoUrl} onChange={(e) => updateNode(activeNode.id, 'videoUrl', e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs mb-2 font-mono"/>
-                                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/*" className="hidden" />
+                                    <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/*,image/*" className="hidden" />
                                     <button onClick={() => fileInputRef.current?.click()} className="w-full bg-gray-700 hover:bg-gray-600 text-xs py-1 rounded flex items-center justify-center gap-2 border border-gray-600"><Upload size={12} /> Pujar Local</button>
                                 </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Transició d'Entrada</label>
-                                    <select value={activeNode.transitionType || 'none'} onChange={(e) => updateNode(activeNode.id, 'transitionType', e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm">
-                                        <option value="none">Cap (Tall sec)</option>
-                                        <option value="fade">Fosa a Negre</option>
-                                    </select>
-                                </div>
+                                <div><label className="block text-xs font-medium text-gray-500 uppercase mb-1">Transició d'Entrada</label><select value={activeNode.transitionType || 'none'} onChange={(e) => updateNode(activeNode.id, 'transitionType', e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm"><option value="none">Cap (Tall sec)</option><option value="fade">Fosa a Negre</option></select></div>
                               </>
                           )}
 
-                          {/* TAB: INTERACCIONS & ESTIL (Combinat per opció) */}
                           {activeTab === 'interactions' && (
                               <>
                                 <div className="flex justify-between items-center mb-2"><h3 className="text-sm font-semibold text-gray-300">Botons</h3><button onClick={addOption} className="text-xs bg-blue-600 px-2 py-1 rounded text-white"><Plus size={12}/></button></div>
@@ -958,81 +1144,31 @@
                                         <div key={opt.id} onClick={() => setSelectedOptionId(opt.id)} className={`bg-gray-750 border rounded p-2 ${selectedOptionId === opt.id ? 'border-yellow-500' : 'border-gray-600'}`}>
                                             <div className="flex justify-between items-center mb-2">
                                                 <span className="text-xs font-bold text-gray-400">Botó #{idx + 1}</span>
-                                                <div className="flex gap-1">
-                                                    <button onClick={(e) => { e.preventDefault(); handleCopyStyle(opt.style); }} className="p-1 hover:bg-gray-600 rounded text-gray-400" title="Copiar Estil"><Copy size={12}/></button>
-                                                    {clipboardStyle && (<button onClick={(e) => { e.preventDefault(); handlePasteStyle(opt.id); }} className="p-1 hover:bg-gray-600 rounded text-green-400" title="Enganxar Estil"><Clipboard size={12}/></button>)}
-                                                    <button onClick={() => removeOption(opt.id)} className="text-red-400"><Trash2 size={12}/></button>
-                                                </div>
+                                                <div className="flex gap-1"><button onClick={(e) => { e.preventDefault(); handleCopyStyle(opt.style); }} className="p-1 hover:bg-gray-600 rounded text-gray-400" title="Copiar Estil"><Copy size={12}/></button>{clipboardStyle && (<button onClick={(e) => { e.preventDefault(); handlePasteStyle(opt.id); }} className="p-1 hover:bg-gray-600 rounded text-green-400" title="Enganxar Estil"><Clipboard size={12}/></button>)}<button onClick={() => removeOption(opt.id)} className="text-red-400"><Trash2 size={12}/></button></div>
                                             </div>
                                             <input type="text" value={opt.label} onChange={(e) => updateOption(opt.id, 'label', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2" placeholder="Etiqueta"/>
+                                            {/* FILTERED SELECT */}
                                             <select value={opt.targetNodeId} onChange={(e) => updateOption(opt.id, 'targetNodeId', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2">
-                                                {nodes.map(n => <option key={n.id} value={n.id}>➔ {n.title}</option>)}
+                                                {nodes.filter(n => n.id !== activeNode.id).map(n => <option key={n.id} value={n.id}>➔ {n.title}</option>)}
+                                                {!nodes.find(n => n.id === opt.targetNodeId) && <option value="" disabled>Destí buit</option>}
                                             </select>
                                             
-                                            {/* SECCIONS COL·LAPSABLES PER OPCIÓ */}
                                             <details className="mb-2">
                                                 <summary className="text-xs text-blue-400 cursor-pointer mb-1">Visual i Temps</summary>
                                                 <div className="pl-2 border-l border-gray-600 space-y-2 mt-1">
                                                     <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] text-gray-500">Inici</label><input type="number" step="0.5" value={opt.startTime} onChange={(e) => updateOption(opt.id, 'startTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div><div className="flex-1"><label className="text-[10px] text-gray-500">Fi</label><input type="number" step="0.5" value={opt.endTime || duration} onChange={(e) => updateOption(opt.id, 'endTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div></div>
-                                                    <div className="flex items-center gap-2 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.singleUse || false} onChange={(e) => updateOption(opt.id, 'singleUse', e.target.checked)} className="w-3 h-3"/><div className="flex items-center gap-1"><Ghost size={12} className={opt.singleUse ? "text-purple-400" : "text-gray-600"} /><label className="text-xs text-gray-400">Un sol ús</label></div></div>
-                                                    
-                                                    {/* ESTIL RÀPID */}
-                                                    <div><label className="text-[10px] text-gray-500">Colors</label><div className="flex gap-2"><input type="color" value={opt.style.backgroundColor} onChange={(e) => batchUpdateOptionStyles(opt.id, {backgroundColor: e.target.value})} className="h-5 w-full"/><input type="color" value={opt.style.color} onChange={(e) => batchUpdateOptionStyles(opt.id, {color: e.target.value})} className="h-5 w-full"/></div></div>
+                                                    <div className="flex gap-2 mb-2"><div className="flex-1 flex items-center gap-1 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.singleUse || false} onChange={(e) => updateOption(opt.id, 'singleUse', e.target.checked)} className="w-3 h-3"/><Ghost size={12}/><label className="text-[10px] text-gray-400">Un sol ús</label></div><div className="flex-1 flex items-center gap-1 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.isHotspot || false} onChange={(e) => updateOption(opt.id, 'isHotspot', e.target.checked)} className="w-3 h-3"/><EyeOff size={12}/><label className="text-[10px] text-gray-400">Hotspot</label></div></div>
+                                                    {opt.isHotspot && (<div className="mb-2"><label className="text-[10px] text-gray-500">Text al passar el ratolí</label><input type="text" value={opt.hoverText || ''} onChange={(e) => updateOption(opt.id, 'hoverText', e.target.value)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>)}
+                                                    <div className="bg-gray-900 p-2 rounded mb-2 border border-gray-600"><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-1"><MapPin size={12} className={opt.useKeyframes ? "text-orange-400" : "text-gray-500"}/><label className="text-[10px] text-gray-400">Animació</label></div><input type="checkbox" checked={opt.useKeyframes || false} onChange={(e) => updateOption(opt.id, 'useKeyframes', e.target.checked)} className="w-3 h-3"/></div>{opt.useKeyframes && (<div className="space-y-1"><button onClick={() => addKeyframe(opt)} className="w-full text-xs bg-orange-600 hover:bg-orange-500 text-white rounded py-1 mt-1 flex items-center justify-center gap-1"><Plus size={10}/>Keyframe</button>{opt.keyframes && opt.keyframes.length > 0 && (<div className="max-h-24 overflow-y-auto mt-2 space-y-1 border-t border-gray-700 pt-1">{opt.keyframes.map((kf, ki) => (<div key={ki} className="flex justify-between items-center text-[10px] bg-gray-800 p-1 rounded"><button onClick={() => seekToKeyframe(kf.time)} className="text-blue-300 hover:underline flex items-center gap-1"><Target size={10}/> {kf.time.toFixed(1)}s</button><button onClick={() => deleteKeyframe(opt.id, kf.time)} className="text-red-400 hover:text-red-300"><Trash2 size={10}/></button></div>))}</div>)}</div>)}</div>
+                                                    {!opt.isHotspot && (<div><label className="text-[10px] text-gray-500">Colors</label><div className="flex gap-2"><input type="color" value={opt.style.backgroundColor} onChange={(e) => batchUpdateOptionStyles(opt.id, {backgroundColor: e.target.value})} className="h-5 w-full"/><input type="color" value={opt.style.color} onChange={(e) => batchUpdateOptionStyles(opt.id, {color: e.target.value})} className="h-5 w-full"/></div></div>)}
                                                 </div>
                                             </details>
 
                                             <details>
                                                 <summary className="text-xs text-purple-400 cursor-pointer mb-1">Lògica (Variables)</summary>
                                                 <div className="pl-2 border-l border-gray-600 space-y-2 mt-1 bg-gray-800 p-2 rounded">
-                                                    {/* VISIBILITY CONDITION */}
-                                                    <div>
-                                                        <label className="text-[10px] text-gray-500 block mb-1">Mostrar si...</label>
-                                                        <div className="flex gap-1">
-                                                            <select 
-                                                                value={opt.condition?.variable || ''} 
-                                                                onChange={(e) => updateOption(opt.id, 'condition', e.target.value ? { ...opt.condition, variable: e.target.value, operator: 'gt', value: 0 } : null)} 
-                                                                className="w-1/3 bg-gray-900 text-[10px] rounded"
-                                                            >
-                                                                <option value="">(Sempre)</option>
-                                                                {variables.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
-                                                            </select>
-                                                            {opt.condition?.variable && (
-                                                                <>
-                                                                    <select value={opt.condition.operator} onChange={(e) => updateOption(opt.id, 'condition', { ...opt.condition, operator: e.target.value })} className="w-1/3 bg-gray-900 text-[10px] rounded">
-                                                                        <option value="gt">&gt;</option><option value="lt">&lt;</option><option value="eq">=</option><option value="neq">!=</option>
-                                                                    </select>
-                                                                    <input type="number" value={opt.condition.value} onChange={(e) => updateOption(opt.id, 'condition', { ...opt.condition, value: e.target.value })} className="w-1/3 bg-gray-900 text-[10px] rounded px-1"/>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
-                                                    {/* CLICK EFFECT */}
-                                                    <div>
-                                                        <label className="text-[10px] text-gray-500 block mb-1">En clicar...</label>
-                                                        {/* Simplificat a 1 efecte per UI */}
-                                                        <div className="flex gap-1">
-                                                            <select 
-                                                                value={opt.effects?.[0]?.variable || ''} 
-                                                                onChange={(e) => {
-                                                                    const newEffect = e.target.value ? { variable: e.target.value, operator: 'add', value: 1 } : null;
-                                                                    updateOption(opt.id, 'effects', newEffect ? [newEffect] : []);
-                                                                }}
-                                                                className="w-1/3 bg-gray-900 text-[10px] rounded"
-                                                            >
-                                                                <option value="">(Res)</option>
-                                                                {variables.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
-                                                            </select>
-                                                            {opt.effects?.[0]?.variable && (
-                                                                <>
-                                                                    <select value={opt.effects[0].operator} onChange={(e) => updateOption(opt.id, 'effects', [{ ...opt.effects[0], operator: e.target.value }])} className="w-1/3 bg-gray-900 text-[10px] rounded">
-                                                                        <option value="set">Set</option><option value="add">Add</option><option value="sub">Sub</option>
-                                                                    </select>
-                                                                    <input type="number" value={opt.effects[0].value} onChange={(e) => updateOption(opt.id, 'effects', [{ ...opt.effects[0], value: e.target.value }])} className="w-1/3 bg-gray-900 text-[10px] rounded px-1"/>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    </div>
+                                                    <div><label className="text-[10px] text-gray-500 block mb-1">Mostrar si...</label><div className="flex gap-1"><select value={opt.condition?.variable || ''} onChange={(e) => updateOption(opt.id, 'condition', e.target.value ? { ...opt.condition, variable: e.target.value, operator: 'gt', value: 0 } : null)} className="w-1/3 bg-gray-900 text-[10px] rounded"><option value="">(Sempre)</option>{variables.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}</select>{opt.condition?.variable && (<><select value={opt.condition.operator} onChange={(e) => updateOption(opt.id, 'condition', { ...opt.condition, operator: e.target.value })} className="w-1/3 bg-gray-900 text-[10px] rounded"><option value="gt">&gt;</option><option value="lt">&lt;</option><option value="eq">=</option><option value="neq">!=</option></select><input type="number" value={opt.condition.value} onChange={(e) => updateOption(opt.id, 'condition', { ...opt.condition, value: e.target.value })} className="w-1/3 bg-gray-900 text-[10px] rounded px-1"/></>)}</div></div>
+                                                    <div><label className="text-[10px] text-gray-500 block mb-1">En clicar...</label><div className="flex gap-1"><select value={opt.effects?.[0]?.variable || ''} onChange={(e) => { const newEffect = e.target.value ? { variable: e.target.value, operator: 'add', value: 1 } : null; updateOption(opt.id, 'effects', newEffect ? [newEffect] : []); }} className="w-1/3 bg-gray-900 text-[10px] rounded"><option value="">(Res)</option>{variables.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}</select>{opt.effects?.[0]?.variable && (<><select value={opt.effects[0].operator} onChange={(e) => updateOption(opt.id, 'effects', [{ ...opt.effects[0], operator: e.target.value }])} className="w-1/3 bg-gray-900 text-[10px] rounded"><option value="set">Set</option><option value="add">Add</option><option value="sub">Sub</option></select><input type="number" value={opt.effects[0].value} onChange={(e) => updateOption(opt.id, 'effects', [{ ...opt.effects[0], value: e.target.value }])} className="w-1/3 bg-gray-900 text-[10px] rounded px-1"/></>)}</div></div>
                                                 </div>
                                             </details>
                                         </div>
@@ -1047,77 +1183,14 @@
                 )}
               </div>
 
-              {/* VARIABLES MODAL */}
+              {/* MODALS */}
               {showVariablesModal && (
                   <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6">
-                          <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><Database size={20}/> Gestor de Variables</h3>
-                          <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
-                              {variables.map((v, i) => (
-                                  <div key={i} className="flex gap-2 items-center">
-                                      <input type="text" value={v.name} onChange={(e) => updateVariable(i, 'name', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm flex-1"/>
-                                      <span className="text-gray-500">=</span>
-                                      <input type="number" value={v.value} onChange={(e) => updateVariable(i, 'value', parseFloat(e.target.value))} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-20"/>
-                                      <button onClick={() => removeVariable(i)} className="text-red-400 hover:bg-red-900/20 p-1 rounded"><Trash2 size={14}/></button>
-                                  </div>
-                              ))}
-                              {variables.length === 0 && <p className="text-gray-500 text-sm italic">Cap variable definida.</p>}
-                          </div>
-                          <div className="flex justify-between">
-                              <button onClick={addVariable} className="text-blue-400 text-sm hover:underline">+ Afegir Variable</button>
-                              <button onClick={() => setShowVariablesModal(false)} className="bg-blue-600 px-4 py-2 rounded text-sm font-bold">Tancar</button>
-                          </div>
-                      </div>
-                  </div>
+                      <div className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6"><h3 className="text-xl font-bold mb-4 flex items-center gap-2"><Database size={20}/> Gestor de Variables</h3><div className="space-y-2 mb-4 max-h-60 overflow-y-auto">{variables.map((v, i) => (<div key={i} className="flex gap-2 items-center"><input type="text" value={v.name} onChange={(e) => updateVariable(i, 'name', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm flex-1"/><span className="text-gray-500">=</span><input type="number" value={v.value} onChange={(e) => updateVariable(i, 'value', parseFloat(e.target.value))} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-20"/><button onClick={() => removeVariable(i)} className="text-red-400 hover:bg-red-900/20 p-1 rounded"><Trash2 size={14}/></button></div>))}</div><div className="flex justify-between"><button onClick={addVariable} className="text-blue-400 text-sm hover:underline">+ Afegir Variable</button><button onClick={() => setShowVariablesModal(false)} className="bg-blue-600 px-4 py-2 rounded text-sm font-bold">Tancar</button></div></div></div>
               )}
-
-              {/* MISSING FILES MODAL */}
-              {showMissingFilesModal && (
-                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                    <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-md w-full p-6 text-center">
-                        <div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={32} className="text-yellow-500" /></div>
-                        <h3 className="text-xl font-bold text-white mb-2">Vídeos No Trobats</h3>
-                        <p className="text-gray-300 text-sm mb-6">Selecciona la carpeta <strong>local</strong> on tens guardats els vídeos.</p>
-                        <div className="flex gap-3 justify-center">
-                            <button onClick={() => setShowMissingFilesModal(false)} className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm">Ignorar</button>
-                            <button onClick={() => bulkVideoInputRef.current?.click()} className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center gap-2"><FolderOpen size={16} /> Seleccionar Carpeta</button>
-                        </div>
-                    </div>
-                </div>
-              )}
-
-              {/* LOAD PROJECT MODAL */}
-              {showLoadModal && (
-                <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
-                    <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-lg w-full p-8">
-                        <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-2"><FolderOpen className="text-blue-500" /> Carregar Projecte</h3>
-                        <div className="space-y-6">
-                            <div className={`p-4 rounded border transition-colors ${videosLoadedCount > 0 ? 'bg-green-900/30 border-green-500/50' : 'bg-gray-750 border-gray-600'}`}>
-                                <div className="flex justify-between items-center mb-2"><span className="font-semibold text-gray-200">Pas 1: Localitzar Vídeos</span>{videosLoadedCount > 0 && <CheckCircle size={16} className="text-green-500" />}</div>
-                                <p className="text-xs text-gray-400 mb-3">Selecciona la carpeta amb els fitxers .mp4.</p>
-                                <button onClick={() => bulkVideoInputRef.current?.click()} className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm flex items-center justify-center gap-2 border border-gray-500"><FileVideo size={16} />{videosLoadedCount > 0 ? `${videosLoadedCount} vídeos detectats` : 'Seleccionar Carpeta'}</button>
-                            </div>
-                            <div className={`p-4 rounded border transition-colors ${videosLoadedCount === 0 ? 'opacity-50 pointer-events-none bg-gray-800 border-gray-700' : 'bg-gray-750 border-gray-600'}`}>
-                                <div className="flex justify-between items-center mb-2"><span className="font-semibold text-gray-200">Pas 2: Carregar Estructura</span></div>
-                                <p className="text-xs text-gray-400 mb-3">Selecciona el fitxer .json del projecte.</p>
-                                <button onClick={() => projectInputRef.current?.click()} disabled={videosLoadedCount === 0} className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center justify-center gap-2 font-bold disabled:bg-gray-600"><FileUp size={16} /> Seleccionar JSON</button>
-                            </div>
-                        </div>
-                        <div className="mt-8 flex justify-end"><button onClick={() => setShowLoadModal(false)} className="text-gray-400 hover:text-white text-sm underline">Cancel·lar</button></div>
-                    </div>
-                </div>
-              )}
-
-              {/* DELETE SCENE MODAL */}
-              {showDeleteModal && (
-                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
-                    <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-sm w-full p-6 text-center">
-                        <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 size={24} className="text-red-500" /></div>
-                        <h3 className="text-lg font-bold text-white mb-2">Esborrar Escena?</h3>
-                        <div className="flex gap-3 justify-center"><button onClick={() => { setShowDeleteModal(false); setNodeToDelete(null); }} className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm">Cancel·lar</button><button onClick={confirmDeleteNode} className="flex-1 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-sm font-bold">Esborrar</button></div>
-                    </div>
-                </div>
-              )}
+              {showMissingFilesModal && (<div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"><div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-md w-full p-6 text-center"><div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={32} className="text-yellow-500" /></div><h3 className="text-xl font-bold text-white mb-2">Vídeos No Trobats</h3><p className="text-gray-300 text-sm mb-6">Selecciona la carpeta <strong>local</strong> on tens guardats els vídeos.</p><div className="flex gap-3 justify-center"><button onClick={() => setShowMissingFilesModal(false)} className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm">Ignorar</button><button onClick={() => bulkVideoInputRef.current?.click()} className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center gap-2"><FolderOpen size={16} /> Seleccionar Carpeta</button></div></div></div>)}
+              {showLoadModal && (<div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"><div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-lg w-full p-8"><h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-2"><FolderOpen className="text-blue-500" /> Carregar Projecte</h3><div className="space-y-6"><div className={`p-4 rounded border transition-colors ${videosLoadedCount > 0 ? 'bg-green-900/30 border-green-500/50' : 'bg-gray-750 border-gray-600'}`}><div className="flex justify-between items-center mb-2"><span className="font-semibold text-gray-200">Pas 1: Localitzar Vídeos</span>{videosLoadedCount > 0 && <CheckCircle size={16} className="text-green-500" />}</div><p className="text-xs text-gray-400 mb-3">Selecciona la carpeta amb els fitxers .mp4.</p><button onClick={() => bulkVideoInputRef.current?.click()} className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm flex items-center justify-center gap-2 border border-gray-500"><FileVideo size={16} />{videosLoadedCount > 0 ? `${videosLoadedCount} vídeos detectats` : 'Seleccionar Carpeta'}</button></div><div className={`p-4 rounded border transition-colors ${videosLoadedCount === 0 ? 'opacity-50 pointer-events-none bg-gray-800 border-gray-700' : 'bg-gray-750 border-gray-600'}`}><div className="flex justify-between items-center mb-2"><span className="font-semibold text-gray-200">Pas 2: Carregar Estructura</span></div><p className="text-xs text-gray-400 mb-3">Selecciona el fitxer .json del projecte.</p><button onClick={() => projectInputRef.current?.click()} disabled={videosLoadedCount === 0} className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center justify-center gap-2 font-bold disabled:bg-gray-600"><FileUp size={16} /> Seleccionar JSON</button></div></div><div className="mt-8 flex justify-end"><button onClick={() => setShowLoadModal(false)} className="text-gray-400 hover:text-white text-sm underline">Cancel·lar</button></div></div></div>)}
+              {showDeleteModal && (<div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"><div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-sm w-full p-6 text-center"><div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><Trash2 size={24} className="text-red-500" /></div><h3 className="text-lg font-bold text-white mb-2">Esborrar Escena?</h3><div className="flex gap-3 justify-center"><button onClick={() => { setShowDeleteModal(false); setNodeToDelete(null); }} className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm">Cancel·lar</button><button onClick={confirmDeleteNode} className="flex-1 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-sm font-bold">Esborrar</button></div></div></div>)}
             </div>
           );
         }
