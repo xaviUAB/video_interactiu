@@ -6,7 +6,7 @@ import {
   Network, Upload, FileVideo, Move, X, Maximize,
   GripHorizontal, Scaling, MousePointer2,
   Download, FolderOpen, Flag, PlayCircle,
-  Copy, Clipboard, AlertCircle
+  Copy, Clipboard, AlertCircle, Ghost, Film, FileUp, AlertTriangle, CheckCircle, Youtube
 } from 'lucide-react';
 
 // --- Utilitats ---
@@ -25,88 +25,31 @@ const hexToRgba = (hex, alpha = 1) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-// --- Dades d'exemple ---
-const INITIAL_NODES = [
-  {
-    id: 'intro',
-    title: 'Introducció',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-    position: { x: 100, y: 100 },
-    color: '#3b82f6',
-    options: [
-      {
-        id: 'opt1',
-        label: 'Anar al Bosc',
-        targetNodeId: 'bosc',
-        startTime: 5,
-        endTime: 15,
-        style: { 
-          top: 70, left: 20, 
-          width: 160, height: 50, 
-          fontSize: 16, color: '#ffffff', backgroundColor: '#3b82f6', bgOpacity: 1,
-          padding: 10, borderRadius: 8, fontFamily: 'sans-serif' 
-        }
-      },
-      {
-        id: 'opt2',
-        label: 'Quedar-se a casa',
-        targetNodeId: 'casa',
-        startTime: 5,
-        endTime: 15,
-        style: { 
-          top: 70, left: 60, 
-          width: 180, height: 50,
-          fontSize: 16, color: '#ffffff', backgroundColor: '#ef4444', bgOpacity: 0.8,
-          padding: 10, borderRadius: 8, fontFamily: 'serif' 
-        }
-      }
-    ]
-  },
-  {
-    id: 'bosc',
-    title: 'Escena del Bosc',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-    position: { x: 500, y: 50 },
-    color: '#10b981',
-    options: [
-      {
-        id: 'opt3',
-        label: 'Tornar al inici',
-        targetNodeId: 'intro',
-        startTime: 10,
-        endTime: 60,
-        style: { 
-          top: 80, left: 40, 
-          width: 200, height: 60,
-          fontSize: 18, color: '#000000', backgroundColor: '#fbbf24', bgOpacity: 1,
-          padding: 12, borderRadius: 50, fontFamily: 'monospace' 
-        }
-      }
-    ]
-  },
-  {
-    id: 'casa',
-    title: 'Escena de Casa',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    position: { x: 500, y: 400 },
-    color: '#ef4444',
-    options: [
-      {
-        id: 'opt4',
-        label: 'Reiniciar',
-        targetNodeId: 'intro',
-        startTime: 3,
-        endTime: 13,
-        style: { 
-          top: 50, left: 45, 
-          width: 150, height: 60,
-          fontSize: 20, color: '#ffffff', backgroundColor: '#10b981', bgOpacity: 0.9,
-          padding: 15, borderRadius: 4, fontFamily: 'sans-serif' 
-        }
-      }
-    ]
+// Funció per resoldre la ruta del vídeo (Fallback)
+const getVideoSrc = (url) => {
+  if (!url) return '';
+  // Si és URL absoluta (http, https, blob) o comença per www, la respectem
+  if (url.match(/^(http|https|blob):/) || url.startsWith('www.')) {
+    return url;
   }
-];
+  // Si ja té el prefix videos/, el respectem
+  if (url.startsWith('videos/')) {
+    return url;
+  }
+  // En cas contrari, assumim que és un fitxer local relatiu
+  return `videos/${url}`;
+};
+
+// Helper per detectar ID de YouTube
+const getYoutubeId = (url) => {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+};
+
+// --- Dades d'exemple ---
+const INITIAL_NODES = []; // INICI BUIT
 
 // --- Component de Gràfic (NodeGraph) ---
 const NodeGraph = ({ 
@@ -115,7 +58,7 @@ const NodeGraph = ({
   onSelectNode, 
   onDeleteNode, 
   startNodeId, 
-  onSetStartNode,
+  onSetStartNode, 
   onPreviewNode 
 }) => {
   const [draggingNodeId, setDraggingNodeId] = useState(null);
@@ -168,13 +111,19 @@ const NodeGraph = ({
 
   const addOptionToNode = (nodeId) => {
     const node = nodes.find(n => n.id === nodeId);
+    const targetId = nodes.length > 0 ? nodes[0].id : nodeId; 
+    
+    // Estil per defecte
+    let initialStyle = { top: 50, left: 50, width: 120, height: 40, fontSize: 14, color: '#fff', backgroundColor: '#333', bgOpacity: 1, padding: 8, borderRadius: 4, fontFamily: 'sans-serif' };
+    
     const newOption = {
       id: `opt-${Date.now()}`,
       label: 'Nova Opció',
-      targetNodeId: nodes[0].id, 
+      targetNodeId: targetId, 
       startTime: 0,
       endTime: 10,
-      style: { top: 50, left: 50, width: 120, height: 40, fontSize: 14, color: '#fff', backgroundColor: '#333', bgOpacity: 1, padding: 8, borderRadius: 4, fontFamily: 'sans-serif' }
+      singleUse: false,
+      style: initialStyle
     };
     onUpdateNode(nodeId, 'options', [...node.options, newOption]);
   };
@@ -194,6 +143,14 @@ const NodeGraph = ({
   return (
     <div ref={containerRef} className="flex-1 bg-gray-950 overflow-auto relative min-h-full cursor-crosshair" style={{ backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
       <div className="relative" style={{ minWidth: '3000px', minHeight: '3000px' }}>
+        {nodes.length === 0 && (
+            <div className="absolute top-20 left-20 text-gray-500 flex flex-col items-center pointer-events-none">
+                <Network size={64} className="mb-4 opacity-20"/>
+                <p className="text-xl font-semibold opacity-40">Llenç buit</p>
+                <p className="text-sm opacity-30">Afegeix una nova escena per començar</p>
+            </div>
+        )}
+        
         <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
           <defs><marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 L2,2" fill="#6b7280" /></marker></defs>
           {nodes.map(node => node.options.map((opt, idx) => {
@@ -213,7 +170,6 @@ const NodeGraph = ({
             <div className="h-10 rounded-t-lg flex items-center justify-between px-3 cursor-move select-none" style={{ backgroundColor: node.color || '#374151' }} onMouseDown={(e) => handleMouseDown(e, node.id)}>
               <div className="flex items-center gap-2 text-white font-bold text-sm truncate max-w-[140px]"><Move size={14} className="opacity-50" /><span className="truncate">{node.title}</span></div>
               <div className="flex items-center gap-1">
-                {/* PLAY FROM HERE */}
                 <button 
                   onClick={(e) => { e.stopPropagation(); onPreviewNode(node.id); }}
                   className="text-white/80 hover:text-green-300 p-1 hover:bg-black/20 rounded"
@@ -221,7 +177,6 @@ const NodeGraph = ({
                 >
                   <PlayCircle size={14} />
                 </button>
-                {/* SET START NODE */}
                 <button 
                   onClick={(e) => { e.stopPropagation(); onSetStartNode(node.id); }}
                   className={`p-1 rounded hover:bg-black/20 ${startNodeId === node.id ? 'text-green-400' : 'text-white/40 hover:text-white'}`}
@@ -229,11 +184,17 @@ const NodeGraph = ({
                 >
                   <Flag size={14} fill={startNodeId === node.id ? "currentColor" : "none"}/>
                 </button>
-
                 <div className="w-px h-4 bg-white/20 mx-1"></div>
-
                 <input type="color" value={node.color || '#374151'} onChange={(e) => onUpdateNode(node.id, 'color', e.target.value)} className="w-5 h-5 rounded cursor-pointer border-none bg-transparent" />
-                <button onClick={() => onDeleteNode(node.id)} className="text-white/60 hover:text-white hover:bg-black/20 rounded p-1"><X size={14} /></button>
+                
+                {/* DELETE BUTTON (Triggers Modal) */}
+                <button 
+                    onClick={(e) => { e.stopPropagation(); onDeleteNode(node.id); }} 
+                    className="text-white/60 hover:text-red-400 hover:bg-black/20 rounded p-1 transition-colors"
+                    title="Esborrar Escena"
+                >
+                    <X size={14} />
+                </button>
               </div>
             </div>
 
@@ -245,8 +206,12 @@ const NodeGraph = ({
                 {node.options.map((opt) => (
                   <div key={opt.id} className="flex items-center gap-1 bg-gray-900 p-1.5 rounded border border-gray-700 relative">
                     <input type="text" value={opt.label} onChange={(e) => updateNodeOption(node.id, opt.id, 'label', e.target.value)} className="w-24 bg-transparent border-none text-xs text-white p-0 truncate font-medium" />
+                    {opt.singleUse && <Ghost size={10} className="text-purple-400 shrink-0 mx-0.5" title="Opció d'un sol ús"/>}
                     <ArrowRightCircle size={12} className="text-gray-500 shrink-0" />
-                    <select value={opt.targetNodeId} onChange={(e) => updateNodeOption(node.id, opt.id, 'targetNodeId', e.target.value)} className="flex-1 bg-gray-800 text-[10px] text-gray-300 border-none rounded py-0.5 px-1 h-5 cursor-pointer">{nodes.map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select>
+                    <select value={opt.targetNodeId} onChange={(e) => updateNodeOption(node.id, opt.id, 'targetNodeId', e.target.value)} className="flex-1 bg-gray-800 text-[10px] text-gray-300 border-none rounded py-0.5 px-1 h-5 cursor-pointer">
+                        {nodes.map(n => <option key={n.id} value={n.id}>{n.title}</option>)}
+                        {!nodes.find(n => n.id === opt.targetNodeId) && <option value="" disabled>Destí esborrat</option>}
+                    </select>
                     <button onClick={() => deleteNodeOption(node.id, opt.id)} className="text-gray-600 hover:text-red-400"><Trash2 size={12} /></button>
                   </div>
                 ))}
@@ -262,17 +227,28 @@ const NodeGraph = ({
 
 export default function App() {
   const [nodes, setNodes] = useState(INITIAL_NODES);
-  const [selectedNodeId, setSelectedNodeId] = useState('intro');
-  const [startNodeId, setStartNodeId] = useState('intro'); 
+  const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [startNodeId, setStartNodeId] = useState(null); 
   const [mode, setMode] = useState('edit'); 
-  const [currentNodeId, setCurrentNodeId] = useState('intro'); 
+  const [currentNodeId, setCurrentNodeId] = useState(null); 
   
   // Video State
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [videoError, setVideoError] = useState(null); // Error state for video
+  const [videoError, setVideoError] = useState(null);
+  const [fileBlobs, setFileBlobs] = useState({}); 
+  const [videosLoadedCount, setVideosLoadedCount] = useState(0); 
   
+  // Logic State
+  const [clickedOptions, setClickedOptions] = useState(new Set()); 
+  const [showMissingFilesModal, setShowMissingFilesModal] = useState(false); 
+  const [showLoadModal, setShowLoadModal] = useState(false); 
+  
+  // Delete Modal State
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [nodeToDelete, setNodeToDelete] = useState(null);
+
   // Dragging State
   const [dragState, setDragState] = useState({ isDragging: false, type: null, targetId: null, startX: 0, startY: 0, initialVal: {} });
   
@@ -284,27 +260,47 @@ export default function App() {
   const timelineTrackRef = useRef(null); 
   const fileInputRef = useRef(null);
   const projectInputRef = useRef(null); 
+  const bulkVideoInputRef = useRef(null); 
 
   const activeNodeId = mode === 'preview' ? currentNodeId : selectedNodeId;
-  const activeNode = nodes.find(n => n.id === activeNodeId) || nodes[0];
+  const activeNode = nodes.find(n => n.id === activeNodeId); 
+  const youtubeId = activeNode ? getYoutubeId(activeNode.videoUrl) : null;
 
   // Reset error when switching nodes
   useEffect(() => {
     setVideoError(null);
+    setShowMissingFilesModal(false);
   }, [activeNodeId]);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || youtubeId) return; // Skip standard video logic if youtube
     
     const handleTimeUpdate = () => setCurrentTime(video.currentTime);
     const handleLoadedMetadata = () => {
       setDuration(video.duration);
-      setVideoError(null); // Clear errors on success
+      setVideoError(null); 
+      setShowMissingFilesModal(false);
     };
+    
     const handleError = (e) => {
-        console.error("Video Error:", e);
-        setVideoError("No s'ha pogut carregar el vídeo.");
+        const error = e.target.error;
+        console.error("Video Error Details:", {
+            code: error?.code,
+            message: error?.message,
+            src: videoRef.current?.src
+        });
+        
+        let msg = "No s'ha pogut carregar el vídeo.";
+        if (error) {
+            if (error.code === 4) {
+                msg = "Vídeo no trobat. Enllaça els fitxers locals.";
+                setShowMissingFilesModal(true);
+            } else if (error.code === 3) {
+                msg = "Error de descodificació (Codi 3).";
+            }
+        }
+        setVideoError(msg);
         setIsPlaying(false);
     };
 
@@ -317,22 +313,23 @@ export default function App() {
       video.removeEventListener('loadedmetadata', handleLoadedMetadata);
       video.removeEventListener('error', handleError);
     };
-  }, [activeNodeId, mode]);
+  }, [activeNodeId, mode, activeNode, youtubeId]);
 
   useEffect(() => {
-    if (videoRef.current) {
+    if (videoRef.current && !youtubeId) {
       videoRef.current.load();
       if (mode === 'preview') {
-        videoRef.current.play().catch(e => console.log("Auto-play blocked", e));
+        videoRef.current.play().catch(e => console.log("Auto-play blocked or waiting", e));
         setIsPlaying(true);
       } else {
         setIsPlaying(false);
       }
     }
     setCurrentTime(0);
-  }, [activeNodeId, mode]);
+  }, [activeNodeId, mode, activeNode, fileBlobs, youtubeId]); 
 
   const togglePlay = () => {
+    if (youtubeId) return; // YouTube logic separate
     if (videoRef.current) {
       if (isPlaying) {
         videoRef.current.pause();
@@ -378,7 +375,8 @@ export default function App() {
         if (data.nodes && Array.isArray(data.nodes)) {
           setNodes(data.nodes);
           if (data.startNodeId) setStartNodeId(data.startNodeId);
-          setSelectedNodeId(data.startNodeId || data.nodes[0].id);
+          setSelectedNodeId(data.startNodeId || (data.nodes.length > 0 ? data.nodes[0].id : null));
+          setShowLoadModal(false); 
           alert("Projecte carregat correctament!");
         } else {
           alert("Format de fitxer invàlid.");
@@ -389,7 +387,30 @@ export default function App() {
       }
     };
     reader.readAsText(file);
-    e.target.value = ''; // Reset input
+    e.target.value = ''; 
+  };
+
+  // --- CÀRREGA MASSIVA DE CARPETA ---
+  const handleLoadProjectVideos = (e) => {
+    const files = Array.from(e.target.files);
+    const newBlobs = {};
+    let count = 0;
+    files.forEach(file => {
+        if (file.type.startsWith('video/')) {
+            const relativeKey = `videos/${file.name}`;
+            newBlobs[relativeKey] = URL.createObjectURL(file);
+            count++;
+        }
+    });
+    setFileBlobs(prev => ({ ...prev, ...newBlobs }));
+    setVideosLoadedCount(count);
+    
+    if (showMissingFilesModal) {
+        setShowMissingFilesModal(false);
+        setVideoError(null);
+    }
+    
+    e.target.value = '';
   };
 
   // --- STYLE COPY / PASTE ---
@@ -413,33 +434,70 @@ export default function App() {
   // --- CRUD Nodes ---
   const addNode = () => {
     const newId = `escena-${Date.now()}`;
-    setNodes([...nodes, { id: newId, title: 'Nova Escena', videoUrl: '', position: { x: 300, y: 300 }, color: '#6b7280', options: [] }]);
+    const newNode = {
+      id: newId,
+      title: 'Nova Escena',
+      videoUrl: '', 
+      position: { x: 300 + (nodes.length * 20), y: 300 + (nodes.length * 20) }, 
+      color: '#6b7280',
+      options: []
+    };
+    setNodes([...nodes, newNode]);
     setSelectedNodeId(newId);
+    if (nodes.length === 0) setStartNodeId(newId); 
   };
+
   const updateNode = (id, field, value) => setNodes(nodes.map(n => n.id === id ? { ...n, [field]: value } : n));
+  
+  // INICIAR ELIMINACIÓ
   const deleteNode = (id) => {
-    if (nodes.length <= 1) return alert("Mínim una escena.");
-    if (!window.confirm("Esborrar?")) return;
-    const newNodes = nodes.filter(n => n.id !== id);
+    setNodeToDelete(id);
+    setShowDeleteModal(true);
+  };
+
+  // CONFIRMAR ELIMINACIÓ
+  const confirmDeleteNode = () => {
+    if (!nodeToDelete) return;
+    const newNodes = nodes.filter(n => n.id !== nodeToDelete);
     setNodes(newNodes);
-    if (selectedNodeId === id) setSelectedNodeId(newNodes[0].id);
-    if (startNodeId === id) setStartNodeId(newNodes[0].id); 
+    
+    if (selectedNodeId === nodeToDelete) {
+        setSelectedNodeId(newNodes.length > 0 ? newNodes[0].id : null);
+    }
+    if (startNodeId === nodeToDelete) {
+        setStartNodeId(newNodes.length > 0 ? newNodes[0].id : null); 
+    }
+    setShowDeleteModal(false);
+    setNodeToDelete(null);
   };
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
-    if (file) updateNode(activeNode.id, 'videoUrl', URL.createObjectURL(file));
+    if (file && activeNode) {
+      const blobUrl = URL.createObjectURL(file);
+      const relativePath = `videos/${file.name}`;
+      setFileBlobs(prev => ({...prev, [relativePath]: blobUrl}));
+      updateNode(activeNode.id, 'videoUrl', relativePath);
+    }
   };
 
   // --- CRUD Options ---
   const addOption = () => {
+    if (!activeNode) return;
+    
+    let initialStyle = { top: 50, left: 50, width: 150, height: 50, fontSize: 14, color: '#ffffff', backgroundColor: activeNode.color || '#6366f1', bgOpacity: 1, padding: 10, borderRadius: 6, fontFamily: 'sans-serif' };
+    if (clipboardStyle) {
+        initialStyle = { ...initialStyle, ...clipboardStyle };
+    }
+
     const newOption = {
       id: `opt-${Date.now()}`,
       label: 'Opció Nova',
-      targetNodeId: nodes[0].id,
+      targetNodeId: nodes.length > 0 ? nodes[0].id : activeNode.id,
       startTime: Math.floor(currentTime),
       endTime: duration || Math.floor(currentTime) + 10,
-      style: { top: 50, left: 50, width: 150, height: 50, fontSize: 14, color: '#ffffff', backgroundColor: activeNode.color || '#6366f1', bgOpacity: 1, padding: 10, borderRadius: 6, fontFamily: 'sans-serif' }
+      singleUse: false,
+      style: initialStyle
     };
     updateNode(activeNodeId, 'options', [...activeNode.options, newOption]);
   };
@@ -472,8 +530,21 @@ export default function App() {
     updateNode(activeNodeId, 'options', activeNode.options.filter(opt => opt.id !== optionId));
   };
 
-  // --- DRAG & DROP & RESIZE HANDLERS ---
+  // --- INTERACTION LOGIC ---
+  const handleOptionInteraction = (opt) => {
+    if (mode === 'preview') {
+        if (opt.singleUse) {
+            setClickedOptions(prev => {
+                const next = new Set(prev);
+                next.add(opt.id);
+                return next;
+            });
+        }
+        setCurrentNodeId(opt.targetNodeId);
+    }
+  };
 
+  // --- DRAG HANDLERS ---
   const handleButtonMouseDown = (e, opt) => {
     if (mode !== 'edit') return;
     e.stopPropagation(); e.preventDefault();
@@ -505,44 +576,35 @@ export default function App() {
   };
 
   const handleGlobalMouseMove = useCallback((e) => {
-    if (!dragState.isDragging) return;
+    if (!dragState.isDragging || !activeNode) return;
 
-    // 1. MOVE BUTTON ON VIDEO STAGE
     if (dragState.type === 'move') {
       const container = videoContainerRef.current;
       if (!container) return;
       const rect = container.getBoundingClientRect();
       const deltaX = e.clientX - dragState.startX;
       const deltaY = e.clientY - dragState.startY;
-      
       const deltaLeftPercent = (deltaX / rect.width) * 100;
       const deltaTopPercent = (deltaY / rect.height) * 100;
-
       const newLeft = Math.max(0, Math.min(100, dragState.initialVal.left + deltaLeftPercent));
       const newTop = Math.max(0, Math.min(100, dragState.initialVal.top + deltaTopPercent));
-      
       batchUpdateOptionStyles(dragState.targetId, { left: newLeft, top: newTop });
     }
 
-    // 2. RESIZE BUTTON
     if (dragState.type === 'resize') {
       const deltaX = e.clientX - dragState.startX;
       const deltaY = e.clientY - dragState.startY;
       const newW = Math.max(20, dragState.initialVal.width + deltaX);
       const newH = Math.max(20, dragState.initialVal.height + deltaY);
-      
       batchUpdateOptionStyles(dragState.targetId, { width: newW, height: newH });
     }
 
-    // 3. TIMELINE INTERACTIONS
     if (['timeline-move', 'timeline-start', 'timeline-end'].includes(dragState.type)) {
       const trackContainer = timelineTrackRef.current;
       if (!trackContainer || duration === 0) return;
       const rect = trackContainer.getBoundingClientRect();
       const deltaX = e.clientX - dragState.startX;
-      
       const deltaSeconds = (deltaX / rect.width) * duration;
-
       const opt = activeNode.options.find(o => o.id === dragState.targetId);
       if (!opt) return;
 
@@ -550,11 +612,7 @@ export default function App() {
         const durationSpan = dragState.initialVal.endTime - dragState.initialVal.startTime;
         let newStart = Math.max(0, dragState.initialVal.startTime + deltaSeconds);
         let newEnd = newStart + durationSpan;
-        
-        if (newEnd > duration) {
-            newEnd = duration;
-            newStart = duration - durationSpan;
-        }
+        if (newEnd > duration) { newEnd = duration; newStart = duration - durationSpan; }
         batchUpdateOptionFields(opt.id, { startTime: newStart, endTime: newEnd });
       } 
       else if (dragState.type === 'timeline-start') {
@@ -568,7 +626,6 @@ export default function App() {
         batchUpdateOptionFields(opt.id, { endTime: newEnd });
       }
     }
-
   }, [dragState, activeNode, duration]);
 
   const handleGlobalMouseUp = useCallback(() => {
@@ -587,8 +644,9 @@ export default function App() {
   }, [dragState, handleGlobalMouseMove, handleGlobalMouseUp]);
 
   const handleTimelineClick = (e) => {
-    if (dragState.isDragging) return; 
-    const rect = timelineTrackRef.current.getBoundingClientRect();
+    if (dragState.isDragging || youtubeId) return; 
+    const rect = timelineTrackRef.current?.getBoundingClientRect();
+    if (!rect) return;
     const clickX = e.clientX - rect.left; 
     const newTime = (clickX / rect.width) * duration;
     if (isFinite(newTime)) {
@@ -598,46 +656,42 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden relative">
       
-      {/* Header */}
       <header className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-20">
         <div className="flex items-center gap-2">
           <MonitorPlay className="text-blue-500 w-6 h-6" />
           <h1 className="font-bold text-lg">InterVideo Studio</h1>
         </div>
-        
         <div className="flex items-center gap-3">
-            {/* SAVE/LOAD */}
-            <div className="flex bg-gray-900 rounded-lg p-1 border border-gray-700 mr-2">
-                <button 
-                    onClick={handleSaveProject} 
-                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-                    title="Desar Projecte (JSON)"
-                >
-                    <Download size={16} />
-                </button>
-                <button 
-                    onClick={() => projectInputRef.current?.click()} 
-                    className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors"
-                    title="Carregar Projecte (JSON)"
-                >
-                    <FolderOpen size={16} />
-                </button>
+            <div className="flex bg-gray-900 rounded-lg p-1 border border-gray-700 mr-2 gap-1">
+                <button onClick={() => setShowLoadModal(true)} className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Carregar Projecte (Carpeta + JSON)"><FolderOpen size={16} /></button>
+                <button onClick={handleSaveProject} className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded transition-colors" title="Desar Projecte (JSON)"><Download size={16} /></button>
+                
+                {/* Inputs Ocults */}
                 <input type="file" ref={projectInputRef} onChange={handleLoadProject} accept=".json" className="hidden" />
+                <input 
+                    type="file" 
+                    ref={bulkVideoInputRef} 
+                    onChange={handleLoadProjectVideos} 
+                    webkitdirectory="true" 
+                    directory=""
+                    multiple 
+                    className="hidden" 
+                />
             </div>
-
-            {/* VIEW MODES */}
             <div className="flex bg-gray-900 rounded-lg p-1 border border-gray-700">
-            <button onClick={() => { setMode('edit'); setIsPlaying(false); }} className={`px-4 py-1.5 rounded-md text-sm font-medium ${mode === 'edit' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>Editor</button>
-            <button onClick={() => setMode('graph')} className={`px-4 py-1.5 rounded-md text-sm font-medium ${mode === 'graph' ? 'bg-purple-600 text-white' : 'text-gray-400'}`}>Mapa</button>
-            <button 
-                onClick={() => { setMode('preview'); setCurrentNodeId(startNodeId); }} // DEFAULT TO START NODE
-                className={`px-4 py-1.5 rounded-md text-sm font-medium ${mode === 'preview' ? 'bg-green-600 text-white' : 'text-gray-400'}`}
-                title="Previsualitzar des de l'inici"
-            >
-                Previsualitzar
-            </button>
+                <button onClick={() => { setMode('edit'); setIsPlaying(false); }} className={`px-4 py-1.5 rounded-md text-sm font-medium ${mode === 'edit' ? 'bg-blue-600 text-white' : 'text-gray-400'}`}>Editor</button>
+                <button onClick={() => setMode('graph')} className={`px-4 py-1.5 rounded-md text-sm font-medium ${mode === 'graph' ? 'bg-purple-600 text-white' : 'text-gray-400'}`}>Mapa</button>
+                <button onClick={() => { 
+                    if (nodes.length > 0) {
+                        setMode('preview'); 
+                        setCurrentNodeId(startNodeId || nodes[0].id); 
+                        setClickedOptions(new Set()); 
+                    } else {
+                        alert("Crea almenys una escena per previsualitzar.");
+                    }
+                }} className={`px-4 py-1.5 rounded-md text-sm font-medium ${mode === 'preview' ? 'bg-green-600 text-white' : 'text-gray-400'}`} title="Previsualitzar des de l'inici">Previsualitzar</button>
             </div>
         </div>
       </header>
@@ -653,7 +707,7 @@ export default function App() {
                 onDeleteNode={deleteNode} 
                 startNodeId={startNodeId}
                 onSetStartNode={setStartNodeId}
-                onPreviewNode={(id) => { setCurrentNodeId(id); setMode('preview'); }}
+                onPreviewNode={(id) => { setCurrentNodeId(id); setMode('preview'); setClickedOptions(new Set()); }}
             />
            </div>
         ) : (
@@ -668,28 +722,43 @@ export default function App() {
                       {startNodeId === node.id && <span className="text-[10px] text-green-500 font-mono">★ INICI</span>}
                     </div>
                   ))}
+                  {nodes.length === 0 && <div className="text-center text-sm text-gray-500 py-4 italic">Cap escena</div>}
                 </div>
               </aside>
             )}
 
             <main className="flex-1 flex flex-col bg-gray-950 relative min-w-0">
               <div ref={videoContainerRef} className={`relative flex-1 bg-black flex items-center justify-center overflow-hidden ${mode === 'edit' ? 'select-none' : ''}`}>
-                {activeNode.videoUrl ? (
+                
+                {!activeNode ? (
+                    <div className="flex flex-col items-center justify-center text-gray-500">
+                        <Film size={64} className="mb-4 opacity-20"/>
+                        <p className="text-lg">Selecciona o crea una escena</p>
+                    </div>
+                ) : youtubeId ? (
+                    <iframe
+                        src={`https://www.youtube.com/embed/${youtubeId}?rel=0&controls=1&autoplay=0`}
+                        title="YouTube video player"
+                        className="w-full h-full"
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                    ></iframe>
+                ) : activeNode.videoUrl ? (
                   <video 
                     ref={videoRef} 
                     className="w-full h-full object-contain" 
-                    src={activeNode.videoUrl} 
+                    src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} 
                     onClick={mode === 'preview' ? togglePlay : null} 
                     loop={mode === 'edit'} 
                     playsInline 
-                    crossOrigin="anonymous"
+                    preload="auto"
                   />
                 ) : (
                   <div className="text-center text-gray-500"><ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" /><button onClick={() => fileInputRef.current?.click()} className="text-blue-400 underline">Carregar Vídeo</button></div>
                 )}
 
-                {/* ERROR OVERLAY */}
-                {videoError && (
+                {videoError && activeNode && !showMissingFilesModal && !youtubeId && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 z-50">
                         <AlertCircle size={48} className="mb-2"/>
                         <p>{videoError}</p>
@@ -697,8 +766,11 @@ export default function App() {
                 )}
 
                 <div className="absolute inset-0 pointer-events-none">
-                  {activeNode.options.map(opt => {
-                    const isVisible = currentTime >= opt.startTime && currentTime <= (opt.endTime || duration);
+                  {activeNode && activeNode.options.map(opt => {
+                    const isVisible = youtubeId ? true : (currentTime >= opt.startTime && currentTime <= (opt.endTime || duration));
+                    
+                    const isClicked = clickedOptions.has(opt.id);
+                    if (mode === 'preview' && opt.singleUse && isClicked) return null;
                     const shouldShow = mode === 'edit' ? true : isVisible;
                     const opacity = (mode === 'edit' && !isVisible) ? 0.3 : 1;
                     if (!shouldShow) return null;
@@ -720,8 +792,8 @@ export default function App() {
                       >
                          <button
                             onMouseDown={(e) => handleButtonMouseDown(e, opt)}
-                            onClick={() => mode === 'preview' && setCurrentNodeId(opt.targetNodeId)}
-                            className={`w-full h-full flex items-center justify-center text-center overflow-hidden shadow-lg transition-transform
+                            onClick={() => handleOptionInteraction(opt)}
+                            className={`w-full h-full flex items-center justify-center text-center overflow-hidden shadow-lg transition-transform relative
                                 ${mode === 'edit' ? 'cursor-move hover:ring-1 hover:ring-white border border-dashed border-white/50' : 'hover:scale-105'}
                                 ${isSelected ? 'ring-2 ring-yellow-400 z-50' : ''}
                             `}
@@ -734,6 +806,7 @@ export default function App() {
                               fontFamily: opt.style.fontFamily,
                             }}
                           >
+                            {mode === 'edit' && opt.singleUse && (<div className="absolute top-1 right-1 opacity-70"><Ghost size={12} className="text-white drop-shadow-md"/></div>)}
                             {opt.label}
                           </button>
                           
@@ -744,14 +817,14 @@ export default function App() {
                              />
                           )}
                           
-                          {mode === 'edit' && <span className="absolute -top-6 left-0 bg-black/70 text-[10px] text-white px-1 rounded whitespace-nowrap">{opt.startTime.toFixed(1)}s - {(opt.endTime || duration).toFixed(1)}s</span>}
+                          {mode === 'edit' && !youtubeId && <span className="absolute -top-6 left-0 bg-black/70 text-[10px] text-white px-1 rounded whitespace-nowrap">{opt.startTime.toFixed(1)}s - {(opt.endTime || duration).toFixed(1)}s</span>}
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              {mode === 'edit' && (
+              {mode === 'edit' && activeNode && !youtubeId && (
                 <div className="h-48 bg-gray-900 border-t border-gray-700 flex flex-col shrink-0 select-none">
                    
                    <div className="h-10 bg-gray-800 border-b border-gray-700 flex items-center px-4 gap-4 justify-between">
@@ -763,63 +836,41 @@ export default function App() {
                    </div>
 
                    <div className="flex-1 flex flex-col min-h-0 bg-gray-900 relative">
-                      
-                      {/* Fons de quadrícula vertical */}
                       <div className="absolute inset-0 flex justify-between px-4 pointer-events-none opacity-10">
                          {[...Array(11)].map((_, i) => <div key={i} className="h-full w-px bg-white"></div>)}
                       </div>
-
-                      {/* RULER synced to Track Ref for correct width clicking */}
-                      <div 
-                        className="h-6 w-full bg-gray-800 border-b border-gray-700 relative cursor-pointer px-4 box-border shrink-0 z-10" 
-                        onClick={handleTimelineClick}
-                      >
+                      <div ref={timelineTrackRef} className="h-6 w-full bg-gray-800 border-b border-gray-700 relative cursor-pointer px-4 box-border shrink-0 z-10" onClick={handleTimelineClick}>
                          <div className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none" style={{ left: `${(currentTime / duration) * 100}%`, marginLeft: '16px' }}></div>
-                         <div className="absolute bottom-0 left-4 right-4 h-1 flex justify-between">
-                             {[...Array(11)].map((_, i) => <div key={i} className="h-full w-px bg-gray-600"></div>)}
-                         </div>
+                         <div className="absolute bottom-0 left-4 right-4 h-1 flex justify-between">{[...Array(11)].map((_, i) => <div key={i} className="h-full w-px bg-gray-600"></div>)}</div>
                       </div>
-
-                      {/* TRACKS CONTAINER (Scrollable) */}
-                      <div 
-                        ref={timelineTrackRef}
-                        className="flex-1 overflow-y-auto p-2 px-4 relative z-0"
-                      >
+                      <div className="flex-1 overflow-y-auto p-2 px-4 relative z-0">
                           <div className="absolute top-0 bottom-0 w-0.5 bg-red-500/20 pointer-events-none z-0" style={{ left: `${(currentTime / duration) * 100}%`}}></div>
-
                           {activeNode.options.map((opt, idx) => {
                               const leftPct = (opt.startTime / duration) * 100;
                               const widthPct = ((opt.endTime - opt.startTime) / duration) * 100;
-
                               return (
                                   <div key={opt.id} className="h-8 relative w-full bg-gray-800/50 rounded mb-1 border border-gray-700/50">
                                       <div className="absolute left-2 top-0 bottom-0 flex items-center text-[10px] text-gray-600 pointer-events-none z-0 w-32 truncate select-none">{opt.label}</div>
-                                      
-                                      <div 
-                                        className="absolute top-1 bottom-1 bg-blue-600/60 border border-blue-400 rounded cursor-pointer group flex items-center justify-between px-1 hover:bg-blue-600/80 z-10"
-                                        style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
-                                        onMouseDown={(e) => handleTimelineItemMouseDown(e, opt, 'timeline-move')}
-                                      >
-                                          {/* Left Resize Handle: shrink-0 is CRITICAL */}
+                                      <div className="absolute top-1 bottom-1 bg-blue-600/60 border border-blue-400 rounded cursor-pointer group flex items-center justify-between px-1 hover:bg-blue-600/80 z-10" style={{ left: `${leftPct}%`, width: `${widthPct}%` }} onMouseDown={(e) => handleTimelineItemMouseDown(e, opt, 'timeline-move')}>
                                           <div className="w-2 h-full bg-blue-400/30 cursor-w-resize hover:bg-white z-20 shrink-0" onMouseDown={(e) => handleTimelineItemMouseDown(e, opt, 'timeline-start')}></div>
-                                          
-                                          {/* Label: min-w-0 to allow shrinking */}
-                                          <span className="text-[10px] text-white font-mono drop-shadow-md truncate pointer-events-none select-none px-1 min-w-0 flex-1 text-center">{opt.label}</span>
-                                          
-                                          {/* Right Resize Handle: shrink-0 is CRITICAL */}
+                                          <span className="text-[10px] text-white font-mono drop-shadow-md truncate pointer-events-none select-none px-1 min-w-0 flex-1 text-center flex items-center justify-center gap-1">{opt.singleUse && <Ghost size={8}/>}{opt.label}</span>
                                           <div className="w-2 h-full bg-blue-400/30 cursor-e-resize hover:bg-white z-20 shrink-0" onMouseDown={(e) => handleTimelineItemMouseDown(e, opt, 'timeline-end')}></div>
                                       </div>
                                   </div>
                               );
                           })}
-                          {activeNode.options.length === 0 && <div className="text-center text-xs text-gray-600 py-4">Afegeix opcions per veure les pistes.</div>}
                       </div>
                    </div>
                 </div>
               )}
+              {mode === 'edit' && activeNode && youtubeId && (
+                  <div className="h-10 bg-gray-900 border-t border-gray-700 flex items-center justify-center text-xs text-gray-500">
+                      <Youtube size={14} className="mr-2"/> Edició de línia de temps no disponible per a vídeos de YouTube. Els botons seran sempre visibles.
+                  </div>
+              )}
             </main>
 
-            {mode === 'edit' && (
+            {mode === 'edit' && activeNode && (
               <aside className="w-72 bg-gray-800 border-l border-gray-700 flex flex-col shrink-0 overflow-y-auto">
                 <div className="p-4 border-b border-gray-700" style={{ borderTop: `4px solid ${activeNode.color || '#3b82f6'}` }}>
                   <h2 className="font-semibold text-gray-300 flex items-center gap-2"><Settings size={16} /> Propietats</h2>
@@ -842,59 +893,32 @@ export default function App() {
                         <div key={opt.id} className={`bg-gray-750 border rounded p-2 ${dragState.targetId === opt.id ? 'border-yellow-500' : 'border-gray-600'}`}>
                           <div className="flex justify-between items-center mb-2"><span className="text-xs font-bold text-gray-400">Botó #{idx + 1}</span><button onClick={() => removeOption(opt.id)} className="text-red-400"><Trash2 size={12}/></button></div>
                           <input type="text" value={opt.label} onChange={(e) => updateOption(opt.id, 'label', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2"/>
-                          <select value={opt.targetNodeId} onChange={(e) => updateOption(opt.id, 'targetNodeId', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2">{nodes.map(n => <option key={n.id} value={n.id}>➔ {n.title}</option>)}</select>
+                          <select value={opt.targetNodeId} onChange={(e) => updateOption(opt.id, 'targetNodeId', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2">
+                            {nodes.map(n => <option key={n.id} value={n.id}>➔ {n.title}</option>)}
+                            {!nodes.find(n => n.id === opt.targetNodeId) && <option value="" disabled>Destí buit</option>}
+                          </select>
                           
-                          <div className="flex gap-2 mb-2">
-                             <div className="flex-1"><label className="text-[10px] text-gray-500">Inici</label><input type="number" step="0.5" value={opt.startTime} onChange={(e) => updateOption(opt.id, 'startTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
-                             <div className="flex-1"><label className="text-[10px] text-gray-500">Fi</label><input type="number" step="0.5" value={opt.endTime || duration} onChange={(e) => updateOption(opt.id, 'endTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                          {!youtubeId && (
+                            <div className="flex gap-2 mb-2">
+                                <div className="flex-1"><label className="text-[10px] text-gray-500">Inici</label><input type="number" step="0.5" value={opt.startTime} onChange={(e) => updateOption(opt.id, 'startTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                <div className="flex-1"><label className="text-[10px] text-gray-500">Fi</label><input type="number" step="0.5" value={opt.endTime || duration} onChange={(e) => updateOption(opt.id, 'endTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 mt-2 mb-2 bg-gray-900 p-1.5 rounded">
+                            <input type="checkbox" checked={opt.singleUse || false} onChange={(e) => updateOption(opt.id, 'singleUse', e.target.checked)} className="w-3 h-3 rounded border-gray-600 bg-gray-800 text-blue-600 focus:ring-0 cursor-pointer"/>
+                            <div className="flex items-center gap-1"><Ghost size={12} className={opt.singleUse ? "text-purple-400" : "text-gray-600"} /><label className="text-xs text-gray-400 select-none">Opció d'un sol ús</label></div>
                           </div>
 
                           <details>
-                             <summary className="text-xs text-blue-400 cursor-pointer flex justify-between items-center group">
-                                Estil 
-                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button 
-                                        onClick={(e) => { e.preventDefault(); handleCopyStyle(opt.style); }} 
-                                        className="p-1 hover:bg-gray-600 rounded text-gray-300" 
-                                        title="Copiar Estil"
-                                    >
-                                        <Copy size={12}/>
-                                    </button>
-                                    {clipboardStyle && (
-                                        <button 
-                                            onClick={(e) => { e.preventDefault(); handlePasteStyle(opt.id); }} 
-                                            className="p-1 hover:bg-gray-600 rounded text-green-300" 
-                                            title="Enganxar Estil"
-                                        >
-                                            <Clipboard size={12}/>
-                                        </button>
-                                    )}
-                                </div>
-                             </summary>
+                             <summary className="text-xs text-blue-400 cursor-pointer flex justify-between items-center group">Estil <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.preventDefault(); handleCopyStyle(opt.style); }} className="p-1 hover:bg-gray-600 rounded text-gray-300" title="Copiar Estil"><Copy size={12}/></button>{clipboardStyle && (<button onClick={(e) => { e.preventDefault(); handlePasteStyle(opt.id); }} className="p-1 hover:bg-gray-600 rounded text-green-300" title="Enganxar Estil"><Clipboard size={12}/></button>)}</div></summary>
                              <div className="mt-2 space-y-2">
                                 <div className="grid grid-cols-2 gap-2">
                                     <input type="number" placeholder="W" value={parseFloat(opt.style.width)} onChange={(e) => updateOptionStyle(opt.id, 'width', parseFloat(e.target.value))} className="bg-gray-900 border border-gray-600 text-xs px-1 rounded"/>
                                     <input type="number" placeholder="H" value={parseFloat(opt.style.height)} onChange={(e) => updateOptionStyle(opt.id, 'height', parseFloat(e.target.value))} className="bg-gray-900 border border-gray-600 text-xs px-1 rounded"/>
                                 </div>
-                                
-                                <div>
-                                    <label className="text-[10px] text-gray-500 block">Fons (Color i Opacitat)</label>
-                                    <div className="flex gap-2 items-center">
-                                        <input type="color" value={opt.style.backgroundColor} onChange={(e) => updateOptionStyle(opt.id, 'backgroundColor', e.target.value)} className="h-6 w-8 rounded cursor-pointer border-none"/>
-                                        <input 
-                                            type="range" min="0" max="1" step="0.1" 
-                                            value={opt.style.bgOpacity !== undefined ? opt.style.bgOpacity : 1} 
-                                            onChange={(e) => updateOptionStyle(opt.id, 'bgOpacity', parseFloat(e.target.value))}
-                                            className="flex-1 accent-blue-500 h-1 bg-gray-600"
-                                            title={`Opacitat: ${opt.style.bgOpacity || 1}`}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="text-[10px] text-gray-500 block">Text</label>
-                                    <input type="color" value={opt.style.color} onChange={(e) => updateOptionStyle(opt.id, 'color', e.target.value)} className="w-full h-6 rounded cursor-pointer border-none"/>
-                                </div>
+                                <div><label className="text-[10px] text-gray-500 block">Fons (Color i Opacitat)</label><div className="flex gap-2 items-center"><input type="color" value={opt.style.backgroundColor} onChange={(e) => updateOptionStyle(opt.id, 'backgroundColor', e.target.value)} className="h-6 w-8 rounded cursor-pointer border-none"/><input type="range" min="0" max="1" step="0.1" value={opt.style.bgOpacity !== undefined ? opt.style.bgOpacity : 1} onChange={(e) => updateOptionStyle(opt.id, 'bgOpacity', parseFloat(e.target.value))} className="flex-1 accent-blue-500 h-1 bg-gray-600" title={`Opacitat: ${opt.style.bgOpacity || 1}`}/></div></div>
+                                <div><label className="text-[10px] text-gray-500 block">Text</label><input type="color" value={opt.style.color} onChange={(e) => updateOptionStyle(opt.id, 'color', e.target.value)} className="w-full h-6 rounded cursor-pointer border-none"/></div>
                              </div>
                           </details>
                         </div>
@@ -907,6 +931,123 @@ export default function App() {
           </>
         )}
       </div>
+
+      {/* MISSING FILES MODAL */}
+      {showMissingFilesModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-md w-full p-6 text-center">
+                <div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertTriangle size={32} className="text-yellow-500" />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Vídeos No Trobats</h3>
+                <p className="text-gray-300 text-sm mb-6">
+                    Sembla que els fitxers de vídeo d'aquest projecte no s'han trobat o no són accessibles.
+                    <br/><br/>
+                    Per solucionar-ho, selecciona la carpeta <strong>local</strong> on tens guardats els vídeos del projecte.
+                </p>
+                
+                <div className="flex gap-3 justify-center">
+                    <button 
+                        onClick={() => setShowMissingFilesModal(false)}
+                        className="px-4 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm"
+                    >
+                        Ignorar
+                    </button>
+                    <button 
+                        onClick={() => bulkVideoInputRef.current?.click()}
+                        className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold flex items-center gap-2"
+                    >
+                        <FolderOpen size={16} />
+                        Seleccionar Carpeta
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* DELETE SCENE MODAL */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-sm w-full p-6 text-center">
+                <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Trash2 size={24} className="text-red-500" />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">Esborrar Escena?</h3>
+                <p className="text-gray-400 text-xs mb-6">
+                    Aquesta acció no es pot desfer i eliminarà tots els enllaços a aquesta escena.
+                </p>
+                <div className="flex gap-3 justify-center">
+                    <button 
+                        onClick={() => { setShowDeleteModal(false); setNodeToDelete(null); }}
+                        className="flex-1 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm"
+                    >
+                        Cancel·lar
+                    </button>
+                    <button 
+                        onClick={confirmDeleteNode}
+                        className="flex-1 py-2 rounded bg-red-600 hover:bg-red-500 text-white text-sm font-bold"
+                    >
+                        Esborrar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* LOAD PROJECT MODAL (UPDATED) */}
+      {showLoadModal && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4">
+            <div className="bg-gray-800 border border-gray-600 rounded-lg shadow-2xl max-w-lg w-full p-8">
+                <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                    <FolderOpen className="text-blue-500" /> Carregar Projecte
+                </h3>
+                
+                <div className="space-y-6">
+                    {/* STEP 1: VIDEOS */}
+                    <div className={`p-4 rounded border transition-colors ${videosLoadedCount > 0 ? 'bg-green-900/30 border-green-500/50' : 'bg-gray-750 border-gray-600'}`}>
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="font-semibold text-gray-200">Pas 1: Localitzar Vídeos</span>
+                            {videosLoadedCount > 0 && <CheckCircle size={16} className="text-green-500" />}
+                        </div>
+                        <p className="text-xs text-gray-400 mb-3">Selecciona la carpeta on tens guardats els fitxers de vídeo (.mp4) del projecte.</p>
+                        <button 
+                            onClick={() => bulkVideoInputRef.current?.click()}
+                            className="w-full py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm flex items-center justify-center gap-2 border border-gray-500"
+                        >
+                            <FileVideo size={16} />
+                            {videosLoadedCount > 0 ? `${videosLoadedCount} vídeos detectats` : 'Seleccionar Carpeta de Vídeos'}
+                        </button>
+                    </div>
+
+                    {/* STEP 2: JSON */}
+                    <div className={`p-4 rounded border transition-colors ${videosLoadedCount === 0 ? 'opacity-50 pointer-events-none bg-gray-800 border-gray-700' : 'bg-gray-750 border-gray-600'}`}>
+                        <div className="flex justify-between items-center mb-2">
+                            <span className="font-semibold text-gray-200">Pas 2: Carregar Estructura</span>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-3">Selecciona el fitxer .json del projecte.</p>
+                        <button 
+                            onClick={() => projectInputRef.current?.click()}
+                            disabled={videosLoadedCount === 0}
+                            className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm flex items-center justify-center gap-2 font-bold disabled:bg-gray-600"
+                        >
+                            <FileUp size={16} />
+                            Seleccionar Fitxer JSON
+                        </button>
+                    </div>
+                </div>
+
+                <div className="mt-8 flex justify-end">
+                    <button 
+                        onClick={() => setShowLoadModal(false)}
+                        className="text-gray-400 hover:text-white text-sm underline"
+                    >
+                        Cancel·lar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 }
