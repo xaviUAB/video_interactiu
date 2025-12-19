@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "timestamp": 1766143075587,
+  "timestamp": 1766143942481,
   "startNodeId": "intro",
   "nodes": [
     {
@@ -59,8 +59,8 @@
     },
     {
       "id": "bosc",
-      "title": "Plaça",
-      "videoUrl": "videos/Plaza.MP4",
+      "title": "Hospital",
+      "videoUrl": "videos/hospital.mp4",
       "position": {
         "x": 500,
         "y": 50
@@ -75,8 +75,8 @@
           "endTime": 15.023311,
           "singleUse": false,
           "style": {
-            "top": 80,
-            "left": 40,
+            "top": 87.11297071129707,
+            "left": 32.38805970149254,
             "width": 200,
             "height": 60,
             "fontSize": 16,
@@ -123,7 +123,7 @@
         },
         {
           "id": "opt-1766138214946",
-          "label": "Anar a la Plaça",
+          "label": "Anar al Dispensari",
           "targetNodeId": "bosc",
           "startTime": 0,
           "endTime": 66.96,
@@ -143,6 +143,17 @@
           }
         }
       ]
+    },
+    {
+      "id": "escena-1766139689973",
+      "title": "Escacs",
+      "videoUrl": "videos/cine.mp4",
+      "position": {
+        "x": 360,
+        "y": 360
+      },
+      "color": "#6b7280",
+      "options": []
     }
   ]
 }
