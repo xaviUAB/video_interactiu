@@ -29,6 +29,15 @@
             background-color: #000;
         }
 
+        /* WRAPPER PER MANTENIR ASPECT RATIO I POSICIONS RELATIVES */
+        #media-wrapper {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            /* Mida inicial, s'ajustarà per JS */
+            width: 100%; 
+            height: 100%;
+        }
+
         video, iframe, img {
             width: 100%;
             height: 100%;
@@ -40,17 +49,26 @@
         .interactive-btn {
             position: absolute;
             transform: translate(-50%, -50%);
-            cursor: pointer;
             border: none;
             outline: none;
-            transition: opacity 0.5s; /* Només fade d'entrada, el moviment és frame a frame */
+            transition: opacity 0.5s;
             z-index: 10;
             display: none;
             opacity: 0;
             white-space: nowrap;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+            /* Ombra suau per llegibilitat */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
             align-items: center;
             justify-content: center;
+        }
+
+        /* Cursor pointer només si és clicable (té destí o efectes) */
+        .interactive-btn.clickable {
+            cursor: pointer;
+        }
+        .interactive-btn.clickable:hover {
+            transform: translate(-50%, -50%) scale(1.05);
+            z-index: 20;
         }
 
         .interactive-btn.visible {
@@ -60,11 +78,6 @@
 
         .interactive-btn.hidden-btn {
              display: none !important;
-        }
-
-        .interactive-btn:hover {
-            transform: translate(-50%, -50%) scale(1.05);
-            z-index: 20;
         }
 
         /* Loading Spinner */
@@ -170,7 +183,6 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.5);
             border: 1px solid rgba(255,255,255,0.2);
         }
-        /* Triangle del tooltip */
         #custom-tooltip::after {
             content: '';
             position: absolute;
@@ -219,6 +231,12 @@
             <h2 class="text-xl font-bold mb-2">Error</h2>
             <p id="error-text"></p>
         </div>
+        
+        <!-- WRAPPER RESPONSIVE -->
+        <div id="media-wrapper">
+             <!-- El contingut (video/iframe i botons) s'injectarà aquí -->
+        </div>
+
     </div>
 
     <script>
@@ -233,10 +251,12 @@
         let videoElement = null;
         let imageTimer = null; 
         let currentImageTime = 0; 
-        let animationFrameId = null; // Per bucle d'animació
+        let animationFrameId = null; 
+        let currentAspectRatio = 16/9; // Default ratio
 
         // ELEMENTS DOM
         const container = document.getElementById('player-container');
+        const mediaWrapper = document.getElementById('media-wrapper');
         const loading = document.getElementById('loading');
         const errorDiv = document.getElementById('error-message');
         const errorText = document.getElementById('error-text');
@@ -282,6 +302,45 @@
             errorText.innerHTML = msg; 
         }
 
+        // --- RESPONSIVITAT I ESCALAT ---
+
+        function resizeWrapper() {
+            if (!mediaWrapper) return;
+            const containerW = container.clientWidth;
+            const containerH = container.clientHeight;
+            const containerRatio = containerW / containerH;
+
+            let finalW, finalH;
+
+            if (containerRatio > currentAspectRatio) {
+                // Pantalla més ampla que el vídeo -> Limita l'alçada
+                finalH = containerH;
+                finalW = finalH * currentAspectRatio;
+            } else {
+                // Pantalla més alta que el vídeo -> Limita l'amplada
+                finalW = containerW;
+                finalH = finalW / currentAspectRatio;
+            }
+
+            mediaWrapper.style.width = `${finalW}px`;
+            mediaWrapper.style.height = `${finalH}px`;
+            
+            // Actualitzar mida lletra botons
+            updateButtonsFontSize(finalH);
+        }
+
+        // Escalar la font proporcionalment a l'alçada del vídeo (referència 900px)
+        function updateButtonsFontSize(currentHeight) {
+            const buttons = document.querySelectorAll('.interactive-btn');
+            buttons.forEach(btn => {
+                const baseSize = parseFloat(btn.dataset.baseFontSize || 16);
+                const scaledSize = (baseSize / 900) * currentHeight;
+                btn.style.fontSize = `${scaledSize}px`;
+            });
+        }
+
+        window.addEventListener('resize', resizeWrapper);
+
         // --- VARIABLES & LÒGICA ---
 
         function initVariables() {
@@ -323,12 +382,14 @@
         function showTooltip(text, targetBtn) {
             tooltip.textContent = text;
             tooltip.style.display = 'block';
-            
-            // Posicionar sobre el botó
             const top = parseFloat(targetBtn.style.top);
             const left = parseFloat(targetBtn.style.left);
             
-            // Això col·loca el tooltip relatiu al contenidor pare
+            // Tooltip relatiu al wrapper (com que està dins del wrapper per posicionament absolut)
+            // No, el tooltip està fora (body > player-container > custom-tooltip).
+            // Hem de calcular la posició absoluta en pantalla o posar-lo dins del wrapper.
+            // Solució: Posar-lo dins de media-wrapper per fer servir % igual.
+            mediaWrapper.appendChild(tooltip);
             tooltip.style.top = `${top}%`;
             tooltip.style.left = `${left}%`;
         }
@@ -387,8 +448,6 @@
                 fadeOverlay.classList.add('active');
             }
             loadNode(startId);
-            
-            // Iniciar bucle d'animació
             loop();
         }
 
@@ -403,8 +462,8 @@
         }
 
         function renderScene(node) {
-            const elementsToRemove = container.querySelectorAll('video, iframe, img, #buttons-layer');
-            elementsToRemove.forEach(el => el.remove());
+            // Netejar wrapper
+            mediaWrapper.innerHTML = '';
             
             // Netejar estat
             loading.style.display = 'block';
@@ -422,6 +481,9 @@
             const onContentReady = () => {
                 loading.style.display = 'none';
                 startOverlay.style.display = 'none'; 
+                // Calcular Aspect Ratio un cop carregat
+                resizeWrapper(); 
+                
                 if (node.transitionType === 'fade') {
                     setTimeout(() => { fadeOverlay.classList.remove('active'); }, 100);
                 } else {
@@ -430,17 +492,24 @@
             };
 
             if (youtubeId) {
+                currentAspectRatio = 16/9; // Assumeix 16:9 per YT
                 const iframe = document.createElement('iframe');
                 iframe.src = `https://www.youtube.com/embed/${youtubeId}?rel=0&controls=0&autoplay=1&modestbranding=1`;
                 iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
                 iframe.allowFullscreen = true;
                 iframe.onload = onContentReady;
-                container.appendChild(iframe);
+                mediaWrapper.appendChild(iframe);
                 renderButtons(node, true);
+                resizeWrapper(); // Forçar resize immediat amb ratio 16:9
+
             } else if (isImageFile(src)) {
                 const img = document.createElement('img');
                 img.src = src;
                 img.onload = () => {
+                    // Calcular ratio imatge
+                    if (img.naturalWidth && img.naturalHeight) {
+                        currentAspectRatio = img.naturalWidth / img.naturalHeight;
+                    }
                     onContentReady();
                     imageTimer = setInterval(() => {
                         currentImageTime += 0.05; 
@@ -450,17 +519,23 @@
                     loading.style.display = 'none';
                     showError(`Imatge no trobada: <strong>${src}</strong>`);
                 };
-                container.appendChild(img);
+                mediaWrapper.appendChild(img);
                 renderButtons(node, false);
             } else {
                 const video = document.createElement('video');
                 video.src = src;
-                
                 video.playsInline = true;
-                video.muted = false; 
+                video.muted = false; // Intentar amb so
                 video.autoplay = true;
                 video.controls = false; 
                 
+                video.onloadedmetadata = () => {
+                     if (video.videoWidth && video.videoHeight) {
+                         currentAspectRatio = video.videoWidth / video.videoHeight;
+                         resizeWrapper();
+                     }
+                };
+
                 video.oncanplay = onContentReady;
                 
                 video.onerror = (e) => {
@@ -472,7 +547,7 @@
                     }
                 };
                 
-                container.appendChild(video);
+                mediaWrapper.appendChild(video);
                 videoElement = video;
                 
                 renderButtons(node, false);
@@ -499,6 +574,7 @@
         function renderButtons(node, isAlwaysVisible) {
             const buttonsContainer = document.createElement('div');
             buttonsContainer.id = 'buttons-layer';
+            // Aquest layer ara està DINS del wrapper, així que 100% és 100% del vídeo
             buttonsContainer.style.position = 'absolute';
             buttonsContainer.style.top = '0';
             buttonsContainer.style.left = '0';
@@ -520,23 +596,24 @@
                 btn.dataset.startTime = opt.startTime;
                 btn.dataset.endTime = opt.endTime || 99999;
                 
-                // --- CORRECCIÓ DE POSICIONAMENT ---
+                // Estils Base (Des del JSON)
                 const s = opt.style || {};
-                const topVal = s.top !== undefined ? s.top : 0;
-                const leftVal = s.left !== undefined ? s.left : 0;
+                const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
                 
-                const formatPos = (val) => {
-                    if (typeof val === 'string' && val.endsWith('%')) return val;
-                    return `${val}%`;
-                };
-
-                btn.style.top = formatPos(topVal);
-                btn.style.left = formatPos(leftVal);
+                // Guardem la mida base per poder escalar-la al resize
+                btn.dataset.baseFontSize = s.fontSize || 16; 
                 
-                btn.style.width = typeof s.width === 'number' ? `${s.width}px` : s.width;
-                btn.style.height = typeof s.height === 'number' ? `${s.height}px` : s.height;
+                btn.style.color = s.color;
+                btn.style.backgroundColor = bgColor;
+                btn.style.padding = `${s.padding}px`;
+                btn.style.borderRadius = `${s.borderRadius}px`;
+                btn.style.fontFamily = s.fontFamily;
                 
-                // Estils visuals
+                // Nous estils de text (Bold, Italic)
+                if (s.fontWeight) btn.style.fontWeight = s.fontWeight;
+                if (s.fontStyle) btn.style.fontStyle = s.fontStyle;
+                
+                // Hotspot Mode
                 if (opt.isHotspot) {
                     btn.style.opacity = '0'; 
                     btn.style.backgroundColor = 'transparent'; 
@@ -545,32 +622,46 @@
                         btn.onmouseenter = () => showTooltip(opt.hoverText, btn);
                         btn.onmouseleave = hideTooltip;
                     }
-                } else {
-                    const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
-                    btn.style.fontSize = `${s.fontSize}px`;
-                    btn.style.color = s.color;
-                    btn.style.backgroundColor = bgColor;
-                    btn.style.padding = `${s.padding}px`;
-                    btn.style.borderRadius = `${s.borderRadius}px`;
-                    btn.style.fontFamily = s.fontFamily;
                 }
 
-                btn.style.pointerEvents = 'auto'; 
+                // Definir si és clickable (Té acció o és text pla?)
+                // Si targetNodeId és buit o null, és text estàtic (no pointer)
+                // Excepte si té efectes (canvi variable), llavors sí que és clickable
+                const isClickable = !!(opt.targetNodeId || (opt.effects && opt.effects.length > 0));
+                
+                if (isClickable) {
+                    btn.classList.add('clickable');
+                    btn.style.pointerEvents = 'auto'; 
+                    btn.onclick = () => handleOptionClick(opt);
+                } else {
+                    // Botó tipus Text (no fa res)
+                    btn.style.pointerEvents = 'auto'; // Per permetre hover si calgués, o selection
+                    btn.style.cursor = 'default';
+                }
+
+                // Posició inicial (percentatges relatius al wrapper)
+                const formatPos = (val) => typeof val === 'string' && val.endsWith('%') ? val : `${val}%`;
+                btn.style.top = formatPos(s.top);
+                btn.style.left = formatPos(s.left);
+                btn.style.width = typeof s.width === 'number' ? `${s.width}px` : s.width; // A l'editor ara són % normalment, però mantenim compatibilitat
+                if(String(s.width).indexOf('%') === -1 && String(s.width) !== 'auto') btn.style.width = s.width + '%'; // Forçar % si ve de l'editor nou
+                btn.style.height = typeof s.height === 'number' ? `${s.height}px` : s.height;
+                 if(String(s.height).indexOf('%') === -1 && String(s.height) !== 'auto') btn.style.height = s.height + '%';
 
                 if (isAlwaysVisible) {
                     btn.classList.add('visible');
                     if (opt.isHotspot) btn.style.opacity = '0'; 
                 }
 
-                btn.onclick = () => handleOptionClick(opt);
-
                 buttonsContainer.appendChild(btn);
             });
 
-            container.appendChild(buttonsContainer);
+            mediaWrapper.appendChild(buttonsContainer);
+            // Trigger inicial de font size
+            updateButtonsFontSize(mediaWrapper.clientHeight);
         }
 
-        // Interpolació de Keyframes
+        // Interpolació
         function updateKeyframes(currentTime) {
             if (!currentNode) return;
             const buttons = document.querySelectorAll('.interactive-btn');
@@ -603,7 +694,6 @@
 
                                 const w = w1 + (w2 - w1) * progress;
                                 const h = h1 + (h2 - h1) * progress;
-                                
                                 const l = k1.left + (k2.left - k1.left) * progress;
                                 const t = k1.top + (k2.top - k1.top) * progress;
                                 
@@ -616,8 +706,8 @@
                     if (newStyle.left !== undefined) {
                         btn.style.left = `${newStyle.left}%`;
                         btn.style.top = `${newStyle.top}%`;
-                        if (newStyle.width) btn.style.width = `${newStyle.width}px`;
-                        if (newStyle.height) btn.style.height = `${newStyle.height}px`;
+                        if (newStyle.width) btn.style.width = `${newStyle.width}%`;
+                        if (newStyle.height) btn.style.height = `${newStyle.height}%`;
                     }
                 }
             });
@@ -634,25 +724,21 @@
                 if (currentTime >= start && currentTime <= end) {
                     btn.classList.add('visible');
                     btn.classList.remove('hidden-btn');
-                    // Si és hotspot, mantenim opacity 0 (invisible però present)
                      const opt = currentNode.options.find(o => o.id === btn.dataset.id);
                      if (opt && opt.isHotspot) btn.style.opacity = '0';
-
                 } else {
                     btn.classList.remove('visible');
-                    btn.classList.add('hidden-btn'); // CSS class to force hide display
+                    btn.classList.add('hidden-btn');
                 }
             });
         }
 
         function handleOptionClick(opt) {
-            if (opt.effects) {
-                applyEffects(opt.effects);
-            }
+            if (opt.effects) applyEffects(opt.effects);
+            if (opt.singleUse) clickedOptions.add(opt.id);
 
-            if (opt.singleUse) {
-                clickedOptions.add(opt.id);
-            }
+            // Si no hi ha target (Botó de text), no fem res més
+            if (!opt.targetNodeId) return;
 
             const targetNode = projectData.nodes.find(n => n.id === opt.targetNodeId);
             
