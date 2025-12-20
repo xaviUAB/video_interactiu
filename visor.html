@@ -56,8 +56,8 @@
             display: none;
             opacity: 0;
             white-space: nowrap;
-            /* Ombra suau per llegibilitat */
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            /* Eliminada l'ombra per defecte per evitar requadres en textos transparents */
+            /* box-shadow: 0 2px 4px rgba(0,0,0,0.3); */
             align-items: center;
             justify-content: center;
         }
@@ -694,6 +694,7 @@
 
                                 const w = w1 + (w2 - w1) * progress;
                                 const h = h1 + (h2 - h1) * progress;
+                                
                                 const l = k1.left + (k2.left - k1.left) * progress;
                                 const t = k1.top + (k2.top - k1.top) * progress;
                                 
