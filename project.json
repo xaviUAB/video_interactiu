@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "timestamp": 1766189241228,
+  "timestamp": 1766192222861,
   "startNodeId": "escena-1766158052988",
   "nodes": [
     {
@@ -21,11 +21,11 @@
           "endTime": 23.160877742946706,
           "singleUse": false,
           "style": {
-            "top": 77.16145599511556,
-            "left": 20.58110700416413,
-            "width": 160,
-            "height": 50,
-            "fontSize": 16,
+            "top": 81.20631937511016,
+            "left": 24.920127795527158,
+            "width": 27.316293929712472,
+            "height": 17.7866917249075,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -54,11 +54,11 @@
           "endTime": 23.492664576802508,
           "singleUse": false,
           "style": {
-            "top": 76.48535564853557,
-            "left": 79.67997005567773,
-            "width": 180,
-            "height": 50,
-            "fontSize": 16,
+            "top": 82.91025973719748,
+            "left": 80.35143769968052,
+            "width": 27.316293929712472,
+            "height": 17.7866917249075,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -80,46 +80,46 @@
           "keyframes": [
             {
               "time": 0,
-              "left": 49.21630094043886,
-              "top": 77.46781115879827,
-              "width": 206,
-              "height": 49
+              "left": 49.52076677316293,
+              "top": 11.637093993775792,
+              "width": 91.69329073482429,
+              "height": 21.194572449082152
             },
             {
               "time": 2.731043,
-              "left": 51.09717868338558,
-              "top": 20.3862660944206,
-              "width": 600,
-              "height": 54
+              "left": 50,
+              "top": 12.480724770921306,
+              "width": 86.90095846645367,
+              "height": 20.910582388734266
             },
             {
               "time": 4.878917,
-              "left": 50.78369905956112,
-              "top": 59.87124463519312,
-              "width": 600,
-              "height": 54
+              "left": 53.674121405750796,
+              "top": 58.77110460762702,
+              "width": 86.90095846645367,
+              "height": 20.910582388734266
             },
             {
               "time": 6.866377,
-              "left": 49.21630094043886,
-              "top": 77.46781115879827,
-              "width": 206,
-              "height": 49
+              "left": 52.87539936102237,
+              "top": 82.91025973719749,
+              "width": 24.600638977635782,
+              "height": 26.022403474996246
             }
           ],
           "condition": null,
           "effects": [],
           "style": {
-            "top": 77.46781115879827,
-            "left": 49.21630094043886,
-            "width": 206,
-            "height": 49,
-            "fontSize": 14,
+            "top": 11.637093993775792,
+            "left": 49.52076677316293,
+            "width": 91.69329073482429,
+            "height": 21.194572449082152,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
             "padding": 10,
-            "borderRadius": 6,
+            "borderRadius": 8,
             "fontFamily": "sans-serif"
           }
         }
@@ -144,11 +144,11 @@
           "endTime": 15.626306434169276,
           "singleUse": false,
           "style": {
-            "top": 79.37238493723851,
-            "left": 79.09652365133579,
-            "width": 200,
-            "height": 60,
-            "fontSize": 16,
+            "top": 82.33394021260355,
+            "left": 75.87859424920129,
+            "width": 27.316293929712472,
+            "height": 17.7866917249075,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -167,11 +167,11 @@
           "condition": null,
           "effects": [],
           "style": {
-            "top": 78.5355648535565,
-            "left": 23.140410798671226,
-            "width": 200,
-            "height": 60,
-            "fontSize": 16,
+            "top": 80.07869853761676,
+            "left": 23.64217252396166,
+            "width": 27.316293929712472,
+            "height": 17.7866917249075,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -201,11 +201,11 @@
           "endTime": 10,
           "singleUse": false,
           "style": {
-            "top": 84.18410041841004,
-            "left": 79.25326346324803,
-            "width": 200,
-            "height": 60,
-            "fontSize": 16,
+            "top": 80.36092281772436,
+            "left": 76.19808306709265,
+            "width": 27.316293929712472,
+            "height": 17.7866917249075,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -222,17 +222,18 @@
           "endTime": 66.96,
           "singleUse": false,
           "style": {
-            "top": 83.97489539748953,
-            "left": 24.39432929396904,
-            "width": 200,
-            "height": 60,
-            "fontSize": 16,
+            "top": 80.64314709783196,
+            "left": 27.316293929712458,
+            "width": 27.316293929712472,
+            "height": 17.7866917249075,
+            "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
             "padding": 10,
             "borderRadius": 8,
-            "fontFamily": "sans-serif"
+            "fontFamily": "sans-serif",
+            "fontWeight": "normal"
           },
           "condition": {
             "variable": "hospital",
@@ -246,6 +247,35 @@
               "value": 1
             }
           ]
+        },
+        {
+          "id": "opt-1766192173782",
+          "label": "Accés als Ferrocarrils Catalans",
+          "targetNodeId": "",
+          "startTime": 0,
+          "endTime": 10,
+          "singleUse": false,
+          "isHotspot": false,
+          "hoverText": "",
+          "useKeyframes": false,
+          "keyframes": [],
+          "condition": null,
+          "effects": [],
+          "style": {
+            "top": 14.177112514744174,
+            "left": 31.629392971246,
+            "width": 61.82108626198084,
+            "height": 24.84229872759745,
+            "fontSize": 61,
+            "color": "#000000",
+            "backgroundColor": "#3b82f6",
+            "bgOpacity": 0,
+            "padding": 10,
+            "borderRadius": 8,
+            "fontFamily": "sans-serif",
+            "fontWeight": "bold",
+            "fontStyle": "normal"
+          }
         }
       ],
       "transitionType": "fade"
@@ -274,46 +304,39 @@
           "keyframes": [
             {
               "time": 0,
-              "left": 56.58307210031346,
-              "top": 38.8412017167382,
-              "width": 105,
-              "height": 105
-            },
-            {
-              "time": 5.156739811912225,
-              "left": 91.53605015673979,
-              "top": 48.712446351931334,
-              "width": 103,
-              "height": 331
+              "left": 57.028753993610216,
+              "top": 41.16656464640337,
+              "width": 13.738019169329087,
+              "height": 25.94568754080708
             },
             {
               "time": 5.2840000000000025,
-              "left": 91.53605015673979,
-              "top": 48.712446351931334,
-              "width": 103,
-              "height": 331
+              "left": 72.68370607028753,
+              "top": 52.46363577611048,
+              "width": 18.69009584664538,
+              "height": 49.79505992574432
             },
             {
               "time": 7.089000000000029,
-              "left": 91.53605015673979,
-              "top": 48.712446351931334,
-              "width": 103,
-              "height": 331
+              "left": 90.25559105431309,
+              "top": 48.90715042046195,
+              "width": 17.571884984025573,
+              "height": 70.08794695503302
             }
           ],
           "condition": null,
           "effects": [],
           "style": {
-            "top": 48.712446351931334,
-            "left": 91.53605015673979,
-            "width": 103,
-            "height": 331,
-            "fontSize": 14,
+            "top": 48.90715042046195,
+            "left": 90.25559105431309,
+            "width": 17.571884984025573,
+            "height": 70.08794695503302,
+            "fontSize": 54,
             "color": "#ffffff",
-            "backgroundColor": "#6b7280",
+            "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
             "padding": 10,
-            "borderRadius": 6,
+            "borderRadius": 8,
             "fontFamily": "sans-serif"
           }
         }
