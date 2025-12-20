@@ -13,6 +13,7 @@
 
     <style>
         body { background-color: #111827; color: white; overflow: hidden; margin: 0; }
+        
         /* Scrollbars personalitzades */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #1f2937; }
@@ -43,6 +44,16 @@
             transform: translate(-50%, -100%);
             margin-top: -8px;
         }
+
+        /* Responsive Video Wrapper */
+        #video-wrapper {
+            position: relative;
+            /* Centrat */
+            margin: auto;
+            /* La mida es controlarà per JS per mantenir aspect ratio */
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
     </style>
 </head>
 <body>
@@ -60,7 +71,7 @@
           Download, FolderOpen, Flag, PlayCircle,
           Copy, Clipboard, AlertCircle, Ghost, Film, FileUp, AlertTriangle, CheckCircle, Youtube,
           Database, Zap, Eye, EyeOff, Layers, Package, Lock,
-          Undo, Redo, MapPin, Target, Image
+          Undo, Redo, MapPin, Target, Image, GripVertical, Bold, Italic
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Utilitats ---
@@ -212,7 +223,11 @@
               startTime: 0,
               endTime: 10,
               singleUse: false,
-              style: { top: 50, left: 50, width: 120, height: 40, fontSize: 14, color: '#fff', backgroundColor: '#333', bgOpacity: 1, padding: 8, borderRadius: 4, fontFamily: 'sans-serif' }
+              style: { 
+                  top: 50, left: 50, width: 20, height: 10, // En %
+                  fontSize: 16, color: '#fff', backgroundColor: '#333', bgOpacity: 1, padding: 8, 
+                  borderRadius: 4, fontFamily: 'sans-serif', fontWeight: 'normal', fontStyle: 'normal' 
+              }
             };
             onUpdateNode(nodeId, 'options', [...node.options, newOption]);
           };
@@ -242,6 +257,7 @@
                 <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
                   <defs><marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 L2,2" fill="#6b7280" /></marker></defs>
                   {nodes.map(node => node.options.map((opt, idx) => {
+                      if (!opt.targetNodeId) return null; 
                       const targetNode = nodes.find(n => n.id === opt.targetNodeId);
                       if (!targetNode) return null;
                       
@@ -297,9 +313,10 @@
 
                             <ArrowRightCircle size={12} className="text-gray-500 shrink-0" />
                             {/* FILTER: Exclude current node from options */}
-                            <select value={opt.targetNodeId} onChange={(e) => updateNodeOption(node.id, opt.id, 'targetNodeId', e.target.value)} className="flex-1 bg-gray-800 text-[10px] text-gray-300 border-none rounded py-0.5 px-1 h-5 cursor-pointer">
+                            <select value={opt.targetNodeId || ""} onChange={(e) => updateNodeOption(node.id, opt.id, 'targetNodeId', e.target.value)} className="flex-1 bg-gray-800 text-[10px] text-gray-300 border-none rounded py-0.5 px-1 h-5 cursor-pointer">
+                                <option value="">Text</option>
                                 {nodes.filter(n => n.id !== node.id).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}
-                                {!nodes.find(n => n.id === opt.targetNodeId) && <option value="" disabled>Destí esborrat</option>}
+                                {opt.targetNodeId && !nodes.find(n => n.id === opt.targetNodeId) && <option value={opt.targetNodeId} disabled>Destí esborrat</option>}
                             </select>
                             <button onClick={() => deleteNodeOption(node.id, opt.id)} className="text-gray-600 hover:text-red-400"><Trash2 size={12} /></button>
                           </div>
@@ -332,6 +349,7 @@
           const [currentNodeId, setCurrentNodeId] = useState(null); 
           const [selectedOptionId, setSelectedOptionId] = useState(null);
           const [hoveredOptionId, setHoveredOptionId] = useState(null); 
+          const [draggedSceneIdx, setDraggedSceneIdx] = useState(null); // State for dragging scenes
           
           // Video State
           const [isPlaying, setIsPlaying] = useState(false);
@@ -341,6 +359,9 @@
           const [fileBlobs, setFileBlobs] = useState({}); 
           const [videosLoadedCount, setVideosLoadedCount] = useState(0); 
           
+          // Mides del vídeo per responsivitat
+          const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
+
           // Logic State
           const [clickedOptions, setClickedOptions] = useState(new Set()); 
           const [runtimeVariables, setRuntimeVariables] = useState({}); 
@@ -365,6 +386,7 @@
 
           const videoRef = useRef(null);
           const videoContainerRef = useRef(null);
+          const videoWrapperRef = useRef(null); // Ref pel contenidor ajustat al vídeo
           const timelineTrackRef = useRef(null); 
           const fileInputRef = useRef(null);
           const projectInputRef = useRef(null); 
@@ -382,6 +404,68 @@
             const projectData = { nodes, variables, startNodeId };
             localStorage.setItem('intervideo_project', JSON.stringify(projectData));
           }, [nodes, variables, startNodeId]);
+
+          // --- RESPONSIVE VIDEO SIZE ---
+          // Actualitza les dimensions del wrapper per coincidir exactament amb el vídeo renderitzat
+          useEffect(() => {
+              const handleResize = () => {
+                  if (videoRef.current && videoContainerRef.current) {
+                      const video = videoRef.current;
+                      const container = videoContainerRef.current;
+                      
+                      // Dimensions naturals
+                      const vw = video.videoWidth || 1600;
+                      const vh = video.videoHeight || 900;
+                      const vr = vw / vh;
+                      
+                      // Dimensions contenidor pare
+                      const cw = container.clientWidth;
+                      const ch = container.clientHeight;
+                      const cr = cw / ch;
+
+                      let finalW, finalH;
+
+                      if (cr > vr) {
+                          // Contenidor més ample que el vídeo -> Mana l'alçada
+                          finalH = ch;
+                          finalW = ch * vr;
+                      } else {
+                          // Contenidor més alt que el vídeo -> Mana l'amplada
+                          finalW = cw;
+                          finalH = cw / vr;
+                      }
+
+                      setVideoDimensions({ width: finalW, height: finalH });
+                  } else if (isImage && videoContainerRef.current) {
+                      // Per imatges, assumim que omplen el contenidor object-fit contain
+                      // Aquí simplifiquem assumint 16:9 si no carreguem metadades de img encara
+                      // Millora: llegir naturalWidth de la imatge
+                      const container = videoContainerRef.current;
+                      // Per defecte 16:9 si no sabem res
+                      const vw = 1600; 
+                      const vh = 900;
+                      // ... (Lògica idèntica de resize o llegir de l'element img real)
+                      // Per simplicitat, assignem contenidor full per ara, però l'ideal és llegir la img
+                      setVideoDimensions({ width: container.clientWidth, height: container.clientHeight });
+                  }
+              };
+
+              window.addEventListener('resize', handleResize);
+              // També cridar quan es carrega metadata del vídeo
+              if (videoRef.current) {
+                  videoRef.current.addEventListener('loadedmetadata', handleResize);
+              }
+              
+              // Trigger inicial
+              const timer = setTimeout(handleResize, 100);
+
+              return () => {
+                  window.removeEventListener('resize', handleResize);
+                  if (videoRef.current) videoRef.current.removeEventListener('loadedmetadata', handleResize);
+                  clearTimeout(timer);
+              };
+          }, [activeNode, isImage]);
+
 
           // --- UNDO / REDO LOGIC ---
           const saveHistory = () => {
@@ -419,6 +503,24 @@
             setVariables(next.variables);
             setStartNodeId(next.startNodeId);
           }, [nodes, variables, startNodeId]);
+
+          // --- SCENE REORDERING HANDLERS ---
+          const handleSceneDragStart = (e, index) => {
+              e.dataTransfer.effectAllowed = 'move';
+              setDraggedSceneIdx(index);
+          };
+
+          const handleSceneDrop = (e, index) => {
+              e.preventDefault();
+              if (draggedSceneIdx === null || draggedSceneIdx === index) return;
+              
+              saveHistory();
+              const newNodes = [...nodes];
+              const [removed] = newNodes.splice(draggedSceneIdx, 1);
+              newNodes.splice(index, 0, removed);
+              setNodes(newNodes);
+              setDraggedSceneIdx(null);
+          };
 
           // --- ANIMATION LOOP (Updated for Images) ---
           const animate = () => {
@@ -523,8 +625,8 @@
                         e.preventDefault();
                         saveHistory();
                         const step = 0.5; 
-                        let newLeft = opt.style.left;
-                        let newTop = opt.style.top;
+                        let newLeft = parseFloat(opt.style.left);
+                        let newTop = parseFloat(opt.style.top);
                         if (e.code === 'ArrowLeft') newLeft -= step;
                         if (e.code === 'ArrowRight') newLeft += step;
                         if (e.code === 'ArrowUp') newTop -= step;
@@ -739,7 +841,12 @@
           const addOption = () => {
             if (!activeNode) return;
             saveHistory();
-            let initialStyle = { top: 50, left: 50, width: 150, height: 50, fontSize: 14, color: '#ffffff', backgroundColor: activeNode.color || '#6366f1', bgOpacity: 1, padding: 10, borderRadius: 6, fontFamily: 'sans-serif' };
+            // Default styling with new properties (Percentatge)
+            let initialStyle = { 
+                top: 50, left: 50, width: 20, height: 10, // Percentatges
+                fontSize: 14, color: '#ffffff', backgroundColor: activeNode.color || '#6366f1', bgOpacity: 1, 
+                padding: 10, borderRadius: 6, fontFamily: 'sans-serif', fontWeight: 'normal', fontStyle: 'normal' 
+            };
             if (clipboardStyle) initialStyle = { ...initialStyle, ...clipboardStyle };
             const newOption = {
               id: `opt-${Date.now()}`,
@@ -818,12 +925,18 @@
             if (mode === 'preview') {
                 if (opt.singleUse) setClickedOptions(prev => new Set(prev).add(opt.id));
                 if (opt.effects) applyEffects(opt.effects);
-                const targetNode = nodes.find(n => n.id === opt.targetNodeId);
-                if (targetNode?.transitionType === 'fade') {
-                    setIsTransitioning(true);
-                    setTimeout(() => { setCurrentNodeId(opt.targetNodeId); }, 500);
-                } else {
-                    setCurrentNodeId(opt.targetNodeId);
+                
+                // Only navigate if targetNodeId exists and is not empty string
+                if (opt.targetNodeId) {
+                    const targetNode = nodes.find(n => n.id === opt.targetNodeId);
+                    if (targetNode) {
+                        if (targetNode.transitionType === 'fade') {
+                            setIsTransitioning(true);
+                            setTimeout(() => { setCurrentNodeId(opt.targetNodeId); }, 500);
+                        } else {
+                            setCurrentNodeId(opt.targetNodeId);
+                        }
+                    }
                 }
             }
           };
@@ -850,9 +963,12 @@
           };
           const handleGlobalMouseMove = useCallback((e) => {
             if (!dragState.isDragging || !activeNode) return;
+            
+            // Dimensions wrapper
+            const rect = videoWrapperRef.current?.getBoundingClientRect();
+            if (!rect) return;
+
             if (dragState.type === 'move') {
-              const rect = videoContainerRef.current?.getBoundingClientRect();
-              if (!rect) return;
               const deltaX = e.clientX - dragState.startX;
               const deltaY = e.clientY - dragState.startY;
               
@@ -862,15 +978,18 @@
               batchUpdateOptionStyles(dragState.targetId, { left: newLeft, top: newTop });
             }
             if (dragState.type === 'resize') {
-              batchUpdateOptionStyles(dragState.targetId, { 
-                  width: Math.max(20, dragState.initialVal.width + (e.clientX - dragState.startX)), 
-                  height: Math.max(20, dragState.initialVal.height + (e.clientY - dragState.startY)) 
-              });
+              const deltaX = e.clientX - dragState.startX;
+              const deltaY = e.clientY - dragState.startY;
+              
+              const newW = Math.max(2, dragState.initialVal.width + (deltaX / rect.width) * 100);
+              const newH = Math.max(2, dragState.initialVal.height + (deltaY / rect.height) * 100);
+              
+              batchUpdateOptionStyles(dragState.targetId, { width: newW, height: newH });
             }
             if (['timeline-move', 'timeline-start', 'timeline-end'].includes(dragState.type)) {
-              const rect = timelineTrackRef.current?.getBoundingClientRect();
-              if (!rect || duration === 0) return;
-              const deltaSeconds = ((e.clientX - dragState.startX) / rect.width) * duration;
+              const rectTL = timelineTrackRef.current?.getBoundingClientRect();
+              if (!rectTL || duration === 0) return;
+              const deltaSeconds = ((e.clientX - dragState.startX) / rectTL.width) * duration;
               const opt = activeNode.options.find(o => o.id === dragState.targetId);
               if (!opt) return;
               if (dragState.type === 'timeline-move') {
@@ -967,9 +1086,21 @@
                         </div>
                         <div className="flex-1 overflow-y-auto p-2 space-y-2">
                           {nodes.map(node => (
-                            <div key={node.id} onClick={() => setSelectedNodeId(node.id)} className={`p-3 rounded-lg cursor-pointer border-l-4 ${selectedNodeId === node.id ? 'bg-blue-900/50 ring-1 ring-blue-500/50' : 'bg-gray-800 border-transparent hover:bg-gray-700'}`} style={{ borderLeftColor: node.color }}>
-                              <h3 className="font-medium text-sm text-gray-200">{node.title}</h3>
-                              {startNodeId === node.id && <span className="text-[10px] text-green-500 font-mono">★ INICI</span>}
+                            <div 
+                              draggable
+                              onDragStart={(e) => handleSceneDragStart(e, nodes.indexOf(node))}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => handleSceneDrop(e, nodes.indexOf(node))}
+                              key={node.id} 
+                              onClick={() => setSelectedNodeId(node.id)} 
+                              className={`p-3 rounded-lg cursor-pointer border-l-4 flex items-center ${selectedNodeId === node.id ? 'bg-blue-900/50 ring-1 ring-blue-500/50' : 'bg-gray-800 border-transparent hover:bg-gray-700'}`} 
+                              style={{ borderLeftColor: node.color }}
+                            >
+                              <GripVertical className="cursor-move text-gray-500 hover:text-white mr-2 shrink-0" size={14} />
+                              <div className="min-w-0">
+                                <h3 className="font-medium text-sm text-gray-200 truncate">{node.title}</h3>
+                                {startNodeId === node.id && <span className="text-[10px] text-green-500 font-mono">★ INICI</span>}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -978,94 +1109,122 @@
 
                     <main className="flex-1 flex flex-col bg-gray-950 relative min-w-0">
                       <div ref={videoContainerRef} onClick={() => mode === 'edit' && setSelectedOptionId(null)} className={`relative flex-1 bg-black flex items-center justify-center overflow-hidden ${mode === 'edit' ? 'select-none' : ''}`}>
-                        {!activeNode ? (
-                            <div className="text-gray-500 text-center"><Film size={64} className="mb-4 opacity-20 mx-auto"/><p>Selecciona una escena</p></div>
-                        ) : youtubeId ? (
-                            <iframe src={`https://www.youtube.com/embed/${youtubeId}?rel=0&controls=1&autoplay=0`} className="w-full h-full" frameBorder="0" allowFullScreen></iframe>
-                        ) : isImage ? (
-                             <img src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} className="w-full h-full object-contain" />
-                        ) : activeNode.videoUrl ? (
-                          <video 
-                            ref={videoRef} className="w-full h-full object-contain" 
-                            src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} 
-                            onClick={mode === 'preview' ? togglePlay : null} loop={mode === 'edit'} playsInline preload="auto"
-                          />
-                        ) : <div className="text-center text-gray-500"><ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" /><button onClick={() => fileInputRef.current?.click()} className="text-blue-400 underline">Carregar Mèdia</button></div>}
+                        
+                        {/* WRAPPER CENTRAT PER A VÍDEO I BOTONS */}
+                        <div 
+                            id="video-wrapper" 
+                            ref={videoWrapperRef}
+                            style={{
+                                width: videoDimensions.width,
+                                height: videoDimensions.height,
+                            }}
+                        >
+                            {!activeNode ? (
+                                <div className="text-gray-500 text-center flex flex-col items-center justify-center h-full"><Film size={64} className="mb-4 opacity-20"/><p>Selecciona una escena</p></div>
+                            ) : youtubeId ? (
+                                <iframe src={`https://www.youtube.com/embed/${youtubeId}?rel=0&controls=1&autoplay=0`} className="w-full h-full" frameBorder="0" allowFullScreen></iframe>
+                            ) : isImage ? (
+                                 <img src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} className="w-full h-full object-contain" />
+                            ) : activeNode.videoUrl ? (
+                              <video 
+                                ref={videoRef} className="w-full h-full object-contain" 
+                                src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} 
+                                onClick={mode === 'preview' ? togglePlay : null} loop={mode === 'edit'} playsInline preload="auto"
+                              />
+                            ) : <div className="text-center text-gray-500 flex flex-col items-center justify-center h-full"><ImageIcon className="w-16 h-16 mx-auto mb-4 opacity-50" /><button onClick={() => fileInputRef.current?.click()} className="text-blue-400 underline">Carregar Mèdia</button></div>}
 
-                        {/* TRANSITION OVERLAY */}
-                        <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity duration-500 z-[100] ${isTransitioning ? 'opacity-100' : 'opacity-0'}`}></div>
+                            {/* TRANSITION OVERLAY */}
+                            <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity duration-500 z-[100] ${isTransitioning ? 'opacity-100' : 'opacity-0'}`}></div>
 
-                        {videoError && activeNode && !showMissingFilesModal && !youtubeId && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 z-50"><AlertCircle size={48} className="mb-2"/><p>{videoError}</p></div>
-                        )}
+                            {videoError && activeNode && !showMissingFilesModal && !youtubeId && (
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 z-50"><AlertCircle size={48} className="mb-2"/><p>{videoError}</p></div>
+                            )}
 
-                        <div className="absolute inset-0 pointer-events-none">
-                          {activeNode && activeNode.options.map(opt => {
-                            const isVisible = youtubeId ? true : (currentTime >= opt.startTime && currentTime <= (opt.endTime || duration));
-                            let conditionsMet = true;
-                            if (mode === 'preview' && opt.condition && opt.condition.variable) {
-                                conditionsMet = checkCondition(opt.condition);
-                            }
-                            if (mode === 'preview' && opt.singleUse && clickedOptions.has(opt.id)) conditionsMet = false;
-
-                            const shouldShow = mode === 'edit' ? true : (isVisible && conditionsMet);
-                            const opacity = (mode === 'edit' && !isVisible) ? 0.3 : 1;
-                            if (!shouldShow) return null;
-                            const isSelected = dragState.targetId === opt.id || selectedOptionId === opt.id;
-                            
-                            // CALCULATE POSITION
-                            let currentStyle = opt.style;
-                            if (opt.useKeyframes && isPlaying && mode === 'preview') {
-                                currentStyle = getInterpolatedStyle(opt, currentTime);
-                            } else if (opt.useKeyframes && mode === 'edit') {
-                                // En edit, si estem arrossegant, ja veiem la posició de l'estil actual (actualitzat per globalMove)
-                                // Si NO estem arrossegant, mostrem la interpolada per al temps actual
-                                if (!(dragState.isDragging && dragState.targetId === opt.id)) {
-                                    currentStyle = getInterpolatedStyle(opt, currentTime);
+                            <div className="absolute inset-0 pointer-events-none">
+                              {activeNode && activeNode.options.map(opt => {
+                                const isVisible = youtubeId ? true : (currentTime >= opt.startTime && currentTime <= (opt.endTime || duration));
+                                let conditionsMet = true;
+                                if (mode === 'preview' && opt.condition && opt.condition.variable) {
+                                    conditionsMet = checkCondition(opt.condition);
                                 }
-                            }
+                                if (mode === 'preview' && opt.singleUse && clickedOptions.has(opt.id)) conditionsMet = false;
 
-                            const finalBgColor = hexToRgba(currentStyle.backgroundColor, currentStyle.bgOpacity !== undefined ? currentStyle.bgOpacity : 1);
-                            
-                            const isHotspotInvisible = mode === 'preview' && opt.isHotspot;
-                            const displayOpacity = isHotspotInvisible ? 0 : 1;
-                            const hotspotBorder = (mode === 'edit' && opt.isHotspot) ? '2px dashed rgba(255,255,255,0.5)' : 'none';
+                                const shouldShow = mode === 'edit' ? true : (isVisible && conditionsMet);
+                                const opacity = (mode === 'edit' && !isVisible) ? 0.3 : 1;
+                                if (!shouldShow) return null;
+                                const isSelected = dragState.targetId === opt.id || selectedOptionId === opt.id;
+                                
+                                // CALCULATE POSITION
+                                let currentStyle = opt.style;
+                                if (opt.useKeyframes && isPlaying && mode === 'preview') {
+                                    currentStyle = getInterpolatedStyle(opt, currentTime);
+                                } else if (opt.useKeyframes && mode === 'edit') {
+                                    if (!(dragState.isDragging && dragState.targetId === opt.id)) {
+                                        currentStyle = getInterpolatedStyle(opt, currentTime);
+                                    }
+                                }
 
-                            return (
-                              <div 
-                                key={opt.id} 
-                                className={`absolute pointer-events-auto group transition-opacity duration-500 ${shouldShow ? 'opacity-100' : 'opacity-0'}`} 
-                                style={{ top: `${currentStyle.top}%`, left: `${currentStyle.left}%`, width: currentStyle.width, height: currentStyle.height, transform: 'translate(-50%, -50%)', opacity: opacity * displayOpacity }}
-                                onMouseEnter={() => setHoveredOptionId(opt.id)}
-                                onMouseLeave={() => setHoveredOptionId(null)}
-                              >
-                                 <button onMouseDown={(e) => handleButtonMouseDown(e, opt)} onClick={() => handleOptionInteraction(opt)}
-                                    className={`w-full h-full flex items-center justify-center text-center overflow-hidden transition-transform relative 
-                                    ${mode === 'edit' ? 'cursor-move' : 'hover:scale-105 cursor-pointer'}
-                                    ${isSelected ? 'ring-2 ring-yellow-400 shadow-2xl z-50' : ''}
-                                    `}
+                                const finalBgColor = hexToRgba(currentStyle.backgroundColor, currentStyle.bgOpacity !== undefined ? currentStyle.bgOpacity : 1);
+                                
+                                const isHotspotInvisible = mode === 'preview' && opt.isHotspot;
+                                const displayOpacity = isHotspotInvisible ? 0 : 1;
+                                const hotspotBorder = (mode === 'edit' && opt.isHotspot) ? '2px dashed rgba(255,255,255,0.5)' : 'none';
+
+                                return (
+                                  <div 
+                                    key={opt.id} 
+                                    className={`absolute pointer-events-auto group transition-opacity duration-500 ${shouldShow ? 'opacity-100' : 'opacity-0'}`} 
                                     style={{ 
-                                        fontSize: `${currentStyle.fontSize}px`, 
-                                        color: currentStyle.color, 
-                                        backgroundColor: finalBgColor, 
-                                        padding: `${currentStyle.padding}px`, 
-                                        borderRadius: currentStyle.borderRadius, 
-                                        fontFamily: currentStyle.fontFamily,
-                                        border: isSelected ? undefined : hotspotBorder
-                                    }}>
-                                    {mode === 'edit' && opt.singleUse && (<div className="absolute top-1 right-1 opacity-70"><Ghost size={12} className="text-white drop-shadow-md"/></div>)}
-                                    {!opt.isHotspot && opt.label} 
-                                  </button>
-                                  
-                                  {mode === 'preview' && hoveredOptionId === opt.id && opt.hoverText && (
-                                      <div className="hotspot-tooltip">{opt.hoverText}</div>
-                                  )}
+                                        top: `${currentStyle.top}%`, 
+                                        left: `${currentStyle.left}%`, 
+                                        width: `${currentStyle.width}%`, 
+                                        height: `${currentStyle.height}%`, 
+                                        transform: 'translate(-50%, -50%)', 
+                                        opacity: opacity * displayOpacity 
+                                    }}
+                                    onMouseEnter={() => setHoveredOptionId(opt.id)}
+                                    onMouseLeave={() => setHoveredOptionId(null)}
+                                  >
+                                     <button onMouseDown={(e) => handleButtonMouseDown(e, opt)} onClick={() => handleOptionInteraction(opt)}
+                                        className={`w-full h-full flex items-center justify-center text-center overflow-hidden transition-transform relative 
+                                        ${mode === 'edit' ? 'cursor-move' : 'hover:scale-105 cursor-pointer'}
+                                        ${isSelected ? 'ring-2 ring-yellow-400 shadow-2xl z-50' : ''}
+                                        `}
+                                        style={{ 
+                                            // Font size es ara un % de l'alçada del wrapper per ser proporcional
+                                            // Però com que l'editor usa px, aquí ho simulem o ho convertim.
+                                            // La millor aproximació en CSS pur sense calc complexes és usar % o vw/vh, 
+                                            // però aquí usem inline styles.
+                                            // Per simplicitat, mantenim PX per font (com demanava l'usuari originalment),
+                                            // però si es vol escalar, caldria fer: 
+                                            // fontSize: (currentStyle.fontSize / 900) * videoDimensions.height + 'px'
+                                            // Assumim 900px com alçada de disseny base.
+                                            fontSize: `${(currentStyle.fontSize / 900) * videoDimensions.height}px`,
+                                            
+                                            color: currentStyle.color, 
+                                            backgroundColor: finalBgColor, 
+                                            padding: `${currentStyle.padding}px`, 
+                                            borderRadius: currentStyle.borderRadius, 
+                                            fontFamily: currentStyle.fontFamily,
+                                            fontWeight: currentStyle.fontWeight || 'normal',
+                                            fontStyle: currentStyle.fontStyle || 'normal',
+                                            border: isSelected ? undefined : hotspotBorder
+                                        }}>
+                                        {mode === 'edit' && opt.singleUse && (<div className="absolute top-1 right-1 opacity-70"><Ghost size={12} className="text-white drop-shadow-md"/></div>)}
+                                        {!opt.isHotspot && opt.label} 
+                                      </button>
+                                      
+                                      {mode === 'preview' && hoveredOptionId === opt.id && opt.hoverText && (
+                                          <div className="hotspot-tooltip">{opt.hoverText}</div>
+                                      )}
 
-                                  {mode === 'edit' && (<div onMouseDown={(e) => handleResizeMouseDown(e, opt)} className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-nwse-resize z-50 opacity-0 group-hover:opacity-100 rounded-tl" />)}
-                              </div>
-                            );
-                          })}
+                                      {mode === 'edit' && (<div onMouseDown={(e) => handleResizeMouseDown(e, opt)} className="absolute bottom-0 right-0 w-4 h-4 bg-blue-500 cursor-nwse-resize z-50 opacity-0 group-hover:opacity-100 rounded-tl" />)}
+                                  </div>
+                                );
+                              })}
+                            </div>
                         </div>
+
                       </div>
 
                       {mode === 'edit' && activeNode && !youtubeId && (
@@ -1148,19 +1307,42 @@
                                             </div>
                                             <input type="text" value={opt.label} onChange={(e) => updateOption(opt.id, 'label', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2" placeholder="Etiqueta"/>
                                             {/* FILTERED SELECT */}
-                                            <select value={opt.targetNodeId} onChange={(e) => updateOption(opt.id, 'targetNodeId', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2">
+                                            <select value={opt.targetNodeId || ""} onChange={(e) => updateOption(opt.id, 'targetNodeId', e.target.value)} className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm w-full mb-2">
+                                                <option value="">Text</option>
                                                 {nodes.filter(n => n.id !== activeNode.id).map(n => <option key={n.id} value={n.id}>➔ {n.title}</option>)}
-                                                {!nodes.find(n => n.id === opt.targetNodeId) && <option value="" disabled>Destí buit</option>}
+                                                {opt.targetNodeId && !nodes.find(n => n.id === opt.targetNodeId) && <option value={opt.targetNodeId} disabled>Destí esborrat</option>}
                                             </select>
                                             
                                             <details className="mb-2">
                                                 <summary className="text-xs text-blue-400 cursor-pointer mb-1">Visual i Temps</summary>
                                                 <div className="pl-2 border-l border-gray-600 space-y-2 mt-1">
                                                     <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] text-gray-500">Inici</label><input type="number" step="0.5" value={opt.startTime} onChange={(e) => updateOption(opt.id, 'startTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div><div className="flex-1"><label className="text-[10px] text-gray-500">Fi</label><input type="number" step="0.5" value={opt.endTime || duration} onChange={(e) => updateOption(opt.id, 'endTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div></div>
+                                                    
+                                                    {/* Font Style Controls */}
+                                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                                        <div>
+                                                            <label className="text-[10px] text-gray-500 block">Mida (ref. 900p)</label>
+                                                            <input type="number" value={opt.style.fontSize} onChange={(e) => updateOptionStyle(opt.id, 'fontSize', parseInt(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] text-gray-500 block">Font</label>
+                                                            <select value={opt.style.fontFamily} onChange={(e) => updateOptionStyle(opt.id, 'fontFamily', e.target.value)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded h-5">
+                                                                <option value="sans-serif">Sans</option>
+                                                                <option value="serif">Serif</option>
+                                                                <option value="monospace">Mono</option>
+                                                                <option value="cursive">Cursive</option>
+                                                            </select>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-2 mb-2">
+                                                        <button onClick={() => updateOptionStyle(opt.id, 'fontWeight', opt.style.fontWeight === 'bold' ? 'normal' : 'bold')} className={`flex-1 flex items-center justify-center p-1 rounded border ${opt.style.fontWeight === 'bold' ? 'bg-blue-600 border-blue-500' : 'bg-gray-900 border-gray-600 hover:bg-gray-800'}`} title="Negreta"><Bold size={12}/></button>
+                                                        <button onClick={() => updateOptionStyle(opt.id, 'fontStyle', opt.style.fontStyle === 'italic' ? 'normal' : 'italic')} className={`flex-1 flex items-center justify-center p-1 rounded border ${opt.style.fontStyle === 'italic' ? 'bg-blue-600 border-blue-500' : 'bg-gray-900 border-gray-600 hover:bg-gray-800'}`} title="Cursiva"><Italic size={12}/></button>
+                                                    </div>
+
                                                     <div className="flex gap-2 mb-2"><div className="flex-1 flex items-center gap-1 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.singleUse || false} onChange={(e) => updateOption(opt.id, 'singleUse', e.target.checked)} className="w-3 h-3"/><Ghost size={12}/><label className="text-[10px] text-gray-400">Un sol ús</label></div><div className="flex-1 flex items-center gap-1 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.isHotspot || false} onChange={(e) => updateOption(opt.id, 'isHotspot', e.target.checked)} className="w-3 h-3"/><EyeOff size={12}/><label className="text-[10px] text-gray-400">Hotspot</label></div></div>
                                                     {opt.isHotspot && (<div className="mb-2"><label className="text-[10px] text-gray-500">Text al passar el ratolí</label><input type="text" value={opt.hoverText || ''} onChange={(e) => updateOption(opt.id, 'hoverText', e.target.value)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>)}
                                                     <div className="bg-gray-900 p-2 rounded mb-2 border border-gray-600"><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-1"><MapPin size={12} className={opt.useKeyframes ? "text-orange-400" : "text-gray-500"}/><label className="text-[10px] text-gray-400">Animació</label></div><input type="checkbox" checked={opt.useKeyframes || false} onChange={(e) => updateOption(opt.id, 'useKeyframes', e.target.checked)} className="w-3 h-3"/></div>{opt.useKeyframes && (<div className="space-y-1"><button onClick={() => addKeyframe(opt)} className="w-full text-xs bg-orange-600 hover:bg-orange-500 text-white rounded py-1 mt-1 flex items-center justify-center gap-1"><Plus size={10}/>Keyframe</button>{opt.keyframes && opt.keyframes.length > 0 && (<div className="max-h-24 overflow-y-auto mt-2 space-y-1 border-t border-gray-700 pt-1">{opt.keyframes.map((kf, ki) => (<div key={ki} className="flex justify-between items-center text-[10px] bg-gray-800 p-1 rounded"><button onClick={() => seekToKeyframe(kf.time)} className="text-blue-300 hover:underline flex items-center gap-1"><Target size={10}/> {kf.time.toFixed(1)}s</button><button onClick={() => deleteKeyframe(opt.id, kf.time)} className="text-red-400 hover:text-red-300"><Trash2 size={10}/></button></div>))}</div>)}</div>)}</div>
-                                                    {!opt.isHotspot && (<div><label className="text-[10px] text-gray-500">Colors</label><div className="flex gap-2"><input type="color" value={opt.style.backgroundColor} onChange={(e) => batchUpdateOptionStyles(opt.id, {backgroundColor: e.target.value})} className="h-5 w-full"/><input type="color" value={opt.style.color} onChange={(e) => batchUpdateOptionStyles(opt.id, {color: e.target.value})} className="h-5 w-full"/></div></div>)}
+                                                    {!opt.isHotspot && (<div><label className="text-[10px] text-gray-500">Colors</label><div className="flex gap-2"><input type="color" value={opt.style.backgroundColor} onChange={(e) => batchUpdateOptionStyles(opt.id, {backgroundColor: e.target.value})} className="h-5 w-full"/><input type="color" value={opt.style.color} onChange={(e) => batchUpdateOptionStyles(opt.id, {color: e.target.value})} className="h-5 w-full"/></div><div className="mt-1"><label className="text-[10px] text-gray-500">Transparència Fons</label><input type="range" min="0" max="1" step="0.1" value={opt.style.bgOpacity !== undefined ? opt.style.bgOpacity : 1} onChange={(e) => updateOptionStyle(opt.id, 'bgOpacity', parseFloat(e.target.value))} className="w-full accent-blue-500 h-1 bg-gray-600"/></div></div>)}
                                                 </div>
                                             </details>
 
