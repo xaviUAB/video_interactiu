@@ -490,6 +490,23 @@
                     fadeOverlay.classList.remove('active');
                 }
             };
+            
+            // --- AUTO NAVEGACIÓ ---
+            const handleAutoNavigation = () => {
+                if (node.defaultNextNodeId) {
+                    const targetNode = projectData.nodes.find(n => n.id === node.defaultNextNodeId);
+                    if (targetNode) {
+                        if (targetNode.transitionType === 'fade') {
+                            fadeOverlay.classList.add('active');
+                            setTimeout(() => {
+                                loadNode(node.defaultNextNodeId);
+                            }, 500);
+                        } else {
+                            loadNode(node.defaultNextNodeId);
+                        }
+                    }
+                }
+            };
 
             if (youtubeId) {
                 currentAspectRatio = 16/9; // Assumeix 16:9 per YT
@@ -505,6 +522,8 @@
             } else if (isImageFile(src)) {
                 const img = document.createElement('img');
                 img.src = src;
+                const duration = node.duration || 10; // Default image duration 10s
+
                 img.onload = () => {
                     // Calcular ratio imatge
                     if (img.naturalWidth && img.naturalHeight) {
@@ -513,6 +532,13 @@
                     onContentReady();
                     imageTimer = setInterval(() => {
                         currentImageTime += 0.05; 
+                        checkButtonVisibility(currentImageTime);
+                        
+                        // Check Auto Navigation
+                        if (currentImageTime >= duration) {
+                            clearInterval(imageTimer);
+                            handleAutoNavigation();
+                        }
                     }, 50);
                 };
                 img.onerror = () => {
@@ -537,6 +563,11 @@
                 };
 
                 video.oncanplay = onContentReady;
+                
+                // AUTO NAVIGATION ON ENDED
+                video.onended = () => {
+                    handleAutoNavigation();
+                };
                 
                 video.onerror = (e) => {
                     loading.style.display = 'none';
