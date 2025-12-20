@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visualitzador Video Interactiu - Xavier Ribes - Gamelab UAB</title>
+    <title>Visualitzador Video Interactiu</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
@@ -29,16 +29,12 @@
             background-color: #000;
         }
 
-        video {
+        video, iframe, img {
             width: 100%;
             height: 100%;
             object-fit: contain;
-        }
-
-        iframe {
-            width: 100%;
-            height: 100%;
             border: none;
+            display: block;
         }
 
         .interactive-btn {
@@ -47,13 +43,12 @@
             cursor: pointer;
             border: none;
             outline: none;
-            transition: transform 0.2s, opacity 0.5s; /* Fade in suau */
+            transition: opacity 0.5s; /* Només fade d'entrada, el moviment és frame a frame */
             z-index: 10;
-            display: none; /* Ocult per defecte */
+            display: none;
             opacity: 0;
             white-space: nowrap;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
-            /* Centrem text */
             align-items: center;
             justify-content: center;
         }
@@ -61,6 +56,10 @@
         .interactive-btn.visible {
             display: flex;
             opacity: 1;
+        }
+
+        .interactive-btn.hidden-btn {
+             display: none !important;
         }
 
         .interactive-btn:hover {
@@ -87,7 +86,7 @@
 
         #error-message {
             position: absolute;
-            z-index: 200; /* Per sobre de tot, inclòs el fade */
+            z-index: 200;
             display: none;
             text-align: center;
             color: #f87171;
@@ -98,13 +97,10 @@
             max-width: 80%;
         }
 
-        /* FADE OVERLAY (Cortina negra) */
+        /* FADE OVERLAY */
         .fade-overlay {
             position: absolute;
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%;
+            top: 0; left: 0; width: 100%; height: 100%;
             background-color: black;
             opacity: 0;
             pointer-events: none;
@@ -114,10 +110,10 @@
         
         .fade-overlay.active {
             opacity: 1;
-            pointer-events: auto; /* Bloqueja clics mentre està negre */
+            pointer-events: auto;
         }
 
-        /* START BUTTON OVERLAY */
+        /* START BUTTON */
         #start-overlay {
             position: absolute;
             z-index: 150;
@@ -131,13 +127,10 @@
         }
         
         .play-icon-large {
-            width: 80px;
-            height: 80px;
+            width: 80px; height: 80px;
             background: rgba(255,255,255,0.2);
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             border: 2px solid white;
             transition: transform 0.2s;
         }
@@ -147,6 +140,47 @@
             background: rgba(255,255,255,0.4);
         }
 
+        /* MANUAL LOAD OVERLAY */
+        #manual-load-overlay {
+            position: absolute;
+            z-index: 250;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #111827;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            padding: 20px;
+        }
+
+        /* TOOLTIP PER HOTSPOTS */
+        #custom-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 300;
+            display: none;
+            white-space: nowrap;
+            transform: translate(-50%, -100%);
+            margin-top: -12px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        /* Triangle del tooltip */
+        #custom-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(0, 0, 0, 0.85) transparent transparent transparent;
+        }
     </style>
 </head>
 <body>
@@ -154,6 +188,7 @@
     <div id="player-container">
         <div id="fade-overlay" class="fade-overlay"></div>
         <div id="loading" class="spinner"></div>
+        <div id="custom-tooltip"></div>
         
         <div id="start-overlay" onclick="startPlaybackManual()">
             <div class="play-icon-large">
@@ -164,11 +199,26 @@
             <p class="mt-4 text-lg font-semibold">Clica per començar</p>
         </div>
 
+        <div id="manual-load-overlay">
+            <div class="text-center max-w-lg">
+                <svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                <h2 class="text-2xl font-bold text-white mb-2">Mode Local Detectat</h2>
+                <p class="text-gray-400 mb-6">
+                    Si us plau, selecciona el fitxer <strong>project.json</strong> manualment per continuar.
+                </p>
+                <label class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded cursor-pointer transition-colors inline-flex items-center gap-2">
+                    Seleccionar project.json
+                    <input type="file" id="json-input" accept=".json" class="hidden" onchange="loadLocalJSON(this)">
+                </label>
+            </div>
+        </div>
+
         <div id="error-message">
             <h2 class="text-xl font-bold mb-2">Error</h2>
             <p id="error-text"></p>
         </div>
-        <!-- El contingut (video/iframe i botons) s'injectarà aquí via JS -->
     </div>
 
     <script>
@@ -181,6 +231,9 @@
         let clickedOptions = new Set(); 
         let runtimeVariables = {};     
         let videoElement = null;
+        let imageTimer = null; 
+        let currentImageTime = 0; 
+        let animationFrameId = null; // Per bucle d'animació
 
         // ELEMENTS DOM
         const container = document.getElementById('player-container');
@@ -189,8 +242,10 @@
         const errorText = document.getElementById('error-text');
         const fadeOverlay = document.getElementById('fade-overlay');
         const startOverlay = document.getElementById('start-overlay');
+        const manualLoadOverlay = document.getElementById('manual-load-overlay');
+        const tooltip = document.getElementById('custom-tooltip');
 
-        // --- FUNCIONS AUXILIARS ---
+        // --- UTILITATS ---
 
         function hexToRgba(hex, alpha = 1) {
             let r = 0, g = 0, b = 0;
@@ -214,14 +269,20 @@
             return (match && match[2].length === 11) ? match[2] : null;
         }
 
+        function isImageFile(url) {
+            if (!url) return false;
+            return /\.(jpg|jpeg|png|gif|webp)$/i.test(url) || url.startsWith('data:image');
+        }
+
         function showError(msg) {
             loading.style.display = 'none';
             startOverlay.style.display = 'none';
+            manualLoadOverlay.style.display = 'none';
             errorDiv.style.display = 'block';
-            errorText.innerHTML = msg; // innerHTML per permetre salts de línia
+            errorText.innerHTML = msg; 
         }
 
-        // --- LÒGICA DE VARIABLES I CONDICIONS ---
+        // --- VARIABLES & LÒGICA ---
 
         function initVariables() {
             if (projectData.variables) {
@@ -236,7 +297,6 @@
             const currentVal = runtimeVariables[condition.variable];
             const safeCurrentVal = currentVal !== undefined ? currentVal : 0;
             const targetVal = parseFloat(condition.value);
-            
             switch (condition.operator) {
                 case 'eq': return safeCurrentVal == targetVal;
                 case 'neq': return safeCurrentVal != targetVal;
@@ -252,47 +312,84 @@
                 if (!eff.variable) return;
                 const currentVal = runtimeVariables[eff.variable] || 0;
                 const effectVal = parseFloat(eff.value);
-
                 if (eff.operator === 'set') runtimeVariables[eff.variable] = effectVal;
                 if (eff.operator === 'add') runtimeVariables[eff.variable] = currentVal + effectVal;
                 if (eff.operator === 'sub') runtimeVariables[eff.variable] = currentVal - effectVal;
             });
-            console.log("Variables actualitzades:", runtimeVariables);
         }
 
-        // --- NUCLI DEL REPRODUCTOR ---
+        // --- TOOLTIP ---
+
+        function showTooltip(text, targetBtn) {
+            tooltip.textContent = text;
+            tooltip.style.display = 'block';
+            
+            // Posicionar sobre el botó
+            const top = parseFloat(targetBtn.style.top);
+            const left = parseFloat(targetBtn.style.left);
+            
+            // Això col·loca el tooltip relatiu al contenidor pare
+            tooltip.style.top = `${top}%`;
+            tooltip.style.left = `${left}%`;
+        }
+
+        function hideTooltip() {
+            tooltip.style.display = 'none';
+        }
+
+
+        // --- CARREGA MANUAL ---
+        window.loadLocalJSON = function(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    projectData = JSON.parse(e.target.result);
+                    manualLoadOverlay.style.display = 'none';
+                    startProject();
+                } catch (err) {
+                    alert("Error en llegir el JSON: " + err.message);
+                }
+            };
+            reader.readAsText(file);
+        };
+
+        // --- INICI ---
 
         async function init() {
             try {
-                // Comprovació protocol file://
                 if (window.location.protocol === 'file:') {
-                    showError("⚠️ <strong>Atenció:</strong> Els navegadors bloquegen la càrrega de fitxers JSON locals per seguretat (CORS).<br><br>Si us plau, penja els fitxers a un servidor web o utilitza un servidor local (com 'Live Server' o Python).");
+                    loading.style.display = 'none';
+                    manualLoadOverlay.style.display = 'flex';
                     return;
                 }
-
                 const response = await fetch(JSON_FILE);
-                if (!response.ok) throw new Error(`Error ${response.status}: No s'ha trobat ${JSON_FILE}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 projectData = await response.json();
-                
-                if (!projectData.nodes || projectData.nodes.length === 0) {
-                    throw new Error("El fitxer JSON no conté escenes.");
-                }
-
-                initVariables();
-
-                const startId = projectData.startNodeId || projectData.nodes[0].id;
-                
-                // Si el primer node té fade, comencem en negre
-                const startNode = projectData.nodes.find(n => n.id === startId);
-                if (startNode && startNode.transitionType === 'fade') {
-                    fadeOverlay.classList.add('active');
-                }
-
-                loadNode(startId);
-
+                startProject();
             } catch (err) {
-                showError(`Error carregant el projecte:<br>${err.message}<br><br>Assegura't que 'project.json' és a la mateixa carpeta.`);
+                console.warn("Càrrega automàtica fallida:", err);
+                loading.style.display = 'none';
+                manualLoadOverlay.style.display = 'flex';
             }
+        }
+
+        function startProject() {
+            if (!projectData || !projectData.nodes || projectData.nodes.length === 0) {
+                showError("El fitxer JSON no conté escenes vàlides.");
+                return;
+            }
+            initVariables();
+            const startId = projectData.startNodeId || projectData.nodes[0].id;
+            const startNode = projectData.nodes.find(n => n.id === startId);
+            if (startNode && startNode.transitionType === 'fade') {
+                fadeOverlay.classList.add('active');
+            }
+            loadNode(startId);
+            
+            // Iniciar bucle d'animació
+            loop();
         }
 
         function loadNode(nodeId) {
@@ -301,23 +398,30 @@
                 showError("Node no trobat: " + nodeId);
                 return;
             }
-
             currentNode = node;
             renderScene(node);
         }
 
         function renderScene(node) {
-            const elementsToRemove = container.querySelectorAll('video, iframe, #buttons-layer');
+            const elementsToRemove = container.querySelectorAll('video, iframe, img, #buttons-layer');
             elementsToRemove.forEach(el => el.remove());
-
+            
+            // Netejar estat
             loading.style.display = 'block';
             videoElement = null;
-            
+            if (imageTimer) clearInterval(imageTimer);
+            currentImageTime = 0;
+            hideTooltip();
+
             const youtubeId = getYoutubeId(node.videoUrl);
+            let src = node.videoUrl;
+            if (!src.match(/^(http|https|blob):/) && !src.startsWith('videos/')) {
+                 src = `videos/${src}`;
+            }
 
             const onContentReady = () => {
                 loading.style.display = 'none';
-                startOverlay.style.display = 'none'; // Amagar overlay si estava
+                startOverlay.style.display = 'none'; 
                 if (node.transitionType === 'fade') {
                     setTimeout(() => { fadeOverlay.classList.remove('active'); }, 100);
                 } else {
@@ -333,17 +437,27 @@
                 iframe.onload = onContentReady;
                 container.appendChild(iframe);
                 renderButtons(node, true);
+            } else if (isImageFile(src)) {
+                const img = document.createElement('img');
+                img.src = src;
+                img.onload = () => {
+                    onContentReady();
+                    imageTimer = setInterval(() => {
+                        currentImageTime += 0.05; 
+                    }, 50);
+                };
+                img.onerror = () => {
+                    loading.style.display = 'none';
+                    showError(`Imatge no trobada: <strong>${src}</strong>`);
+                };
+                container.appendChild(img);
+                renderButtons(node, false);
             } else {
                 const video = document.createElement('video');
-                let src = node.videoUrl;
-                if (!src.match(/^(http|https|blob):/) && !src.startsWith('videos/')) {
-                     src = `videos/${src}`;
-                }
                 video.src = src;
                 
                 video.playsInline = true;
-                // Important: Muted per permetre autoplay
-                video.muted = true; 
+                video.muted = false; 
                 video.autoplay = true;
                 video.controls = false; 
                 
@@ -351,41 +465,34 @@
                 
                 video.onerror = (e) => {
                     loading.style.display = 'none';
-                    const err = video.error;
-                    let msg = "Error carregant el vídeo.";
-                    if (err && err.code === 4) msg = `Vídeo no trobat: <strong>${src}</strong>.<br>Verifica que la carpeta 'videos' existeix i conté el fitxer.`;
-                    showError(msg);
+                    if (video.error && video.error.code === 4) {
+                        showError(`Vídeo no trobat: <strong>${src}</strong>.`);
+                    } else {
+                        showError("Error carregant el vídeo.");
+                    }
                 };
-
-                video.ontimeupdate = () => checkButtonVisibility(video.currentTime);
                 
                 container.appendChild(video);
                 videoElement = video;
                 
                 renderButtons(node, false);
                 
-                // Intenta reproduir
                 video.play().catch(e => {
-                    console.log("Autoplay bloquejat:", e);
+                    console.log("Autoplay bloquejat");
                     loading.style.display = 'none';
-                    // Si falla l'autoplay, mostrem el botó gran
                     startOverlay.style.display = 'flex';
                 });
             }
         }
 
-        // Funció per arrencar manualment si l'autoplay falla
         window.startPlaybackManual = function() {
             if (videoElement) {
-                // Des-silenciem quan l'usuari interacciona (opcional, millor experiència)
                 videoElement.muted = false; 
                 videoElement.play()
                     .then(() => {
                         startOverlay.style.display = 'none';
                     })
-                    .catch(e => {
-                        showError("No es pot reproduir el vídeo: " + e.message);
-                    });
+                    .catch(e => showError(e.message));
             }
         };
 
@@ -413,24 +520,46 @@
                 btn.dataset.startTime = opt.startTime;
                 btn.dataset.endTime = opt.endTime || 99999;
                 
-                const s = opt.style;
-                const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
+                // --- CORRECCIÓ DE POSICIONAMENT ---
+                const s = opt.style || {};
+                const topVal = s.top !== undefined ? s.top : 0;
+                const leftVal = s.left !== undefined ? s.left : 0;
                 
-                btn.style.top = `${s.top}%`;
-                btn.style.left = `${s.left}%`;
+                const formatPos = (val) => {
+                    if (typeof val === 'string' && val.endsWith('%')) return val;
+                    return `${val}%`;
+                };
+
+                btn.style.top = formatPos(topVal);
+                btn.style.left = formatPos(leftVal);
+                
                 btn.style.width = typeof s.width === 'number' ? `${s.width}px` : s.width;
                 btn.style.height = typeof s.height === 'number' ? `${s.height}px` : s.height;
-                btn.style.fontSize = `${s.fontSize}px`;
-                btn.style.color = s.color;
-                btn.style.backgroundColor = bgColor;
-                btn.style.padding = `${s.padding}px`;
-                btn.style.borderRadius = `${s.borderRadius}px`;
-                btn.style.fontFamily = s.fontFamily;
                 
+                // Estils visuals
+                if (opt.isHotspot) {
+                    btn.style.opacity = '0'; 
+                    btn.style.backgroundColor = 'transparent'; 
+                    btn.style.color = 'transparent';
+                    if (opt.hoverText) {
+                        btn.onmouseenter = () => showTooltip(opt.hoverText, btn);
+                        btn.onmouseleave = hideTooltip;
+                    }
+                } else {
+                    const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
+                    btn.style.fontSize = `${s.fontSize}px`;
+                    btn.style.color = s.color;
+                    btn.style.backgroundColor = bgColor;
+                    btn.style.padding = `${s.padding}px`;
+                    btn.style.borderRadius = `${s.borderRadius}px`;
+                    btn.style.fontFamily = s.fontFamily;
+                }
+
                 btn.style.pointerEvents = 'auto'; 
 
                 if (isAlwaysVisible) {
                     btn.classList.add('visible');
+                    if (opt.isHotspot) btn.style.opacity = '0'; 
                 }
 
                 btn.onclick = () => handleOptionClick(opt);
@@ -441,7 +570,62 @@
             container.appendChild(buttonsContainer);
         }
 
+        // Interpolació de Keyframes
+        function updateKeyframes(currentTime) {
+            if (!currentNode) return;
+            const buttons = document.querySelectorAll('.interactive-btn');
+            
+            buttons.forEach(btn => {
+                const optId = btn.dataset.id;
+                const opt = currentNode.options.find(o => o.id === optId);
+                
+                if (opt && opt.useKeyframes && opt.keyframes && opt.keyframes.length > 0) {
+                    const sortedKeys = [...opt.keyframes].sort((a, b) => a.time - b.time);
+                    let newStyle = {};
+                    const getVal = (k, p) => k[p] !== undefined ? k[p] : opt.style[p];
+
+                    if (currentTime <= sortedKeys[0].time) {
+                        const k = sortedKeys[0];
+                        newStyle = { left: k.left, top: k.top, width: getVal(k, 'width'), height: getVal(k, 'height') };
+                    } else if (currentTime >= sortedKeys[sortedKeys.length - 1].time) {
+                        const last = sortedKeys[sortedKeys.length - 1];
+                        newStyle = { left: last.left, top: last.top, width: getVal(last, 'width'), height: getVal(last, 'height') };
+                    } else {
+                        for (let i = 0; i < sortedKeys.length - 1; i++) {
+                            const k1 = sortedKeys[i];
+                            const k2 = sortedKeys[i + 1];
+                            if (currentTime >= k1.time && currentTime < k2.time) {
+                                const range = k2.time - k1.time;
+                                const progress = (currentTime - k1.time) / range;
+                                
+                                const w1 = getVal(k1, 'width'), w2 = getVal(k2, 'width');
+                                const h1 = getVal(k1, 'height'), h2 = getVal(k2, 'height');
+
+                                const w = w1 + (w2 - w1) * progress;
+                                const h = h1 + (h2 - h1) * progress;
+                                
+                                const l = k1.left + (k2.left - k1.left) * progress;
+                                const t = k1.top + (k2.top - k1.top) * progress;
+                                
+                                newStyle = { left: l, top: t, width: w, height: h };
+                                break;
+                            }
+                        }
+                    }
+
+                    if (newStyle.left !== undefined) {
+                        btn.style.left = `${newStyle.left}%`;
+                        btn.style.top = `${newStyle.top}%`;
+                        if (newStyle.width) btn.style.width = `${newStyle.width}px`;
+                        if (newStyle.height) btn.style.height = `${newStyle.height}px`;
+                    }
+                }
+            });
+        }
+
         function checkButtonVisibility(currentTime) {
+            updateKeyframes(currentTime);
+
             const buttons = document.querySelectorAll('.interactive-btn');
             buttons.forEach(btn => {
                 const start = parseFloat(btn.dataset.startTime);
@@ -449,8 +633,14 @@
                 
                 if (currentTime >= start && currentTime <= end) {
                     btn.classList.add('visible');
+                    btn.classList.remove('hidden-btn');
+                    // Si és hotspot, mantenim opacity 0 (invisible però present)
+                     const opt = currentNode.options.find(o => o.id === btn.dataset.id);
+                     if (opt && opt.isHotspot) btn.style.opacity = '0';
+
                 } else {
                     btn.classList.remove('visible');
+                    btn.classList.add('hidden-btn'); // CSS class to force hide display
                 }
             });
         }
@@ -474,6 +664,22 @@
             } else {
                 loadNode(opt.targetNodeId);
             }
+        }
+
+        function loop() {
+            if (currentNode && !document.hidden) {
+                let time = 0;
+                if (videoElement && !videoElement.paused) {
+                    time = videoElement.currentTime;
+                } else if (imageTimer) {
+                    time = currentImageTime;
+                }
+                
+                if (videoElement || imageTimer) {
+                    checkButtonVisibility(time);
+                }
+            }
+            animationFrameId = requestAnimationFrame(loop);
         }
 
         window.onload = init;
