@@ -43,6 +43,14 @@
             transform: translate(-50%, -100%);
             margin-top: -8px;
         }
+
+        /* Responsive Video Wrapper */
+        #video-wrapper {
+            position: relative;
+            margin: auto;
+            background-color: #000;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
     </style>
 </head>
 <body>
@@ -60,7 +68,8 @@
           Download, FolderOpen, Flag, PlayCircle,
           Copy, Clipboard, AlertCircle, Ghost, Film, FileUp, AlertTriangle, CheckCircle, Youtube,
           Database, Zap, Eye, EyeOff, Layers, Package, Lock,
-          Undo, Redo, MapPin, Target, Image, GripVertical, Bold, Italic, StepForward
+          Undo, Redo, MapPin, Target, Image, GripVertical, Bold, Italic, StepForward,
+          ZoomIn, ZoomOut, Compass, CircleDot
         } from 'https://esm.sh/lucide-react@0.263.1';
 
         // --- Utilitats ---
@@ -77,6 +86,17 @@
             b = parseInt(hex[5] + hex[6], 16);
           }
           return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+
+        const getContrastYIQ = (hexcolor) => {
+            if (!hexcolor) return 'white';
+            if (hexcolor.startsWith('#')) hexcolor = hexcolor.substring(1);
+            if (hexcolor.length === 3) hexcolor = hexcolor.split('').map(c => c + c).join('');
+            const r = parseInt(hexcolor.substr(0, 2), 16);
+            const g = parseInt(hexcolor.substr(2, 2), 16);
+            const b = parseInt(hexcolor.substr(4, 2), 16);
+            const yiq = ((r * 299) + (g * 587) + (b * 114)) / 1000;
+            return (yiq >= 128) ? 'black' : 'white';
         };
 
         const getVideoSrc = (url) => {
@@ -136,6 +156,24 @@
             return opt.style;
         };
 
+        // --- LÒGICA D'INTERPOLACIÓ DE LÍNIES (Catmull-Rom Spline) ---
+        const generateSmoothPath = (points, k = 0.5) => {
+            if (points.length < 2) return "";
+            let path = `M ${points[0].x} ${points[0].y}`;
+            for (let i = 0; i < points.length - 1; i++) {
+                const p0 = i > 0 ? points[i - 1] : points[0];
+                const p1 = points[i];
+                const p2 = points[i + 1];
+                const p3 = i !== points.length - 2 ? points[i + 2] : p2;
+                const cp1x = p1.x + (p2.x - p0.x) / 6 * k;
+                const cp1y = p1.y + (p2.y - p0.y) / 6 * k;
+                const cp2x = p2.x - (p3.x - p1.x) / 6 * k;
+                const cp2y = p2.y - (p3.y - p1.y) / 6 * k;
+                path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+            }
+            return path;
+        };
+
         const loadJSZip = () => {
           return new Promise((resolve, reject) => {
             if (window.JSZip) return resolve(window.JSZip);
@@ -147,49 +185,129 @@
           });
         };
 
-        // --- Dades Inicials ---
         const INITIAL_NODES = [];
 
         // --- Component de Gràfic ---
         const NodeGraph = ({ 
-          nodes, onUpdateNode, onSelectNode, onDeleteNode, startNodeId, onSetStartNode, onPreviewNode 
+          nodes, onUpdateNode, onSelectNode, onDeleteNode, startNodeId, onSetStartNode, onPreviewNode, onUpdateOption 
         }) => {
           const [draggingNodeId, setDraggingNodeId] = useState(null);
+          const [draggingControlPoint, setDraggingControlPoint] = useState(null); 
           const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+          const [viewport, setViewport] = useState({ x: 0, y: 0, zoom: 1 });
+          const [isPanning, setIsPanning] = useState(false);
+          const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
+
           const containerRef = useRef(null);
 
-          const handleMouseDown = (e, nodeId) => {
-            e.stopPropagation(); 
-            const node = nodes.find(n => n.id === nodeId);
-            if (!node) return;
-            const containerRect = containerRef.current.getBoundingClientRect();
-            const scrollLeft = containerRef.current.scrollLeft;
-            const scrollTop = containerRef.current.scrollTop;
-            const mouseX = e.clientX - containerRect.left + scrollLeft;
-            const mouseY = e.clientY - containerRect.top + scrollTop;
-            setDragOffset({ x: mouseX - (node.position?.x || 0), y: mouseY - (node.position?.y || 0) });
-            setDraggingNodeId(nodeId);
+          const screenToWorld = useCallback((clientX, clientY) => {
+              if (!containerRef.current) return { x: 0, y: 0 };
+              const rect = containerRef.current.getBoundingClientRect();
+              return {
+                  x: (clientX - rect.left - viewport.x) / viewport.zoom,
+                  y: (clientY - rect.top - viewport.y) / viewport.zoom
+              };
+          }, [viewport]);
+
+          const handleWheel = useCallback((e) => {
+              e.preventDefault();
+              if (!containerRef.current) return;
+              const rect = containerRef.current.getBoundingClientRect();
+              const mouseX = e.clientX - rect.left;
+              const mouseY = e.clientY - rect.top;
+              const zoomIntensity = 0.1;
+              const direction = Math.sign(e.deltaY);
+              const newZoom = Math.min(Math.max(0.2, viewport.zoom - direction * zoomIntensity), 4);
+              const worldX = (mouseX - viewport.x) / viewport.zoom;
+              const worldY = (mouseY - viewport.y) / viewport.zoom;
+              const newX = mouseX - worldX * newZoom;
+              const newY = mouseY - worldY * newZoom;
+              setViewport({ x: newX, y: newY, zoom: newZoom });
+          }, [viewport]);
+
+          const handleAddControlPoint = (e, nodeId, optionId) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const worldPos = screenToWorld(e.clientX, e.clientY);
+              const node = nodes.find(n => n.id === nodeId);
+              const option = node.options.find(o => o.id === optionId);
+              const currentPoints = option.controlPoints || [];
+              const newPoints = [...currentPoints, { id: Date.now(), x: worldPos.x, y: worldPos.y }];
+              onUpdateOption(nodeId, optionId, 'controlPoints', newPoints);
+          };
+
+          const handleRemoveControlPoint = (e, nodeId, optionId, index) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const node = nodes.find(n => n.id === nodeId);
+              const option = node.options.find(o => o.id === optionId);
+              const newPoints = [...(option.controlPoints || [])];
+              newPoints.splice(index, 1);
+              onUpdateOption(nodeId, optionId, 'controlPoints', newPoints);
+          };
+
+          const handleControlPointMouseDown = (e, nodeId, optionId, index) => {
+              e.stopPropagation();
+              setDraggingControlPoint({ nodeId, optionId, index });
+          };
+
+          const handleMouseDown = (e, nodeId = null) => {
+            if (e.button === 1 || e.shiftKey) { 
+                 e.preventDefault();
+                 setIsPanning(true);
+                 setLastMousePos({ x: e.clientX, y: e.clientY });
+                 return;
+            }
+
+            if (nodeId) {
+                e.stopPropagation(); 
+                const node = nodes.find(n => n.id === nodeId);
+                if (!node) return;
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                setDragOffset({ 
+                    x: worldPos.x - (node.position?.x || 0), 
+                    y: worldPos.y - (node.position?.y || 0) 
+                });
+                setDraggingNodeId(nodeId);
+            } else {
+                setIsPanning(true);
+                setLastMousePos({ x: e.clientX, y: e.clientY });
+            }
           };
 
           const handleMouseMove = useCallback((e) => {
-            if (!draggingNodeId) return;
-            const containerRect = containerRef.current.getBoundingClientRect();
-            const scrollLeft = containerRef.current.scrollLeft;
-            const scrollTop = containerRef.current.scrollTop;
-            const mouseX = e.clientX - containerRect.left + scrollLeft;
-            const mouseY = e.clientY - containerRect.top + scrollTop;
-            const newX = mouseX - dragOffset.x;
-            const newY = mouseY - dragOffset.y;
-            const updatedNode = nodes.find(n => n.id === draggingNodeId);
-            if (updatedNode) {
-              onUpdateNode(draggingNodeId, 'position', { x: newX, y: newY });
+            if (isPanning) {
+                const dx = e.clientX - lastMousePos.x;
+                const dy = e.clientY - lastMousePos.y;
+                setViewport(prev => ({ ...prev, x: prev.x + dx, y: prev.y + dy }));
+                setLastMousePos({ x: e.clientX, y: e.clientY });
+            } else if (draggingNodeId) {
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                const newX = worldPos.x - dragOffset.x;
+                const newY = worldPos.y - dragOffset.y;
+                onUpdateNode(draggingNodeId, 'position', { x: newX, y: newY });
+            } else if (draggingControlPoint) {
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                const { nodeId, optionId, index } = draggingControlPoint;
+                const node = nodes.find(n => n.id === nodeId);
+                const option = node.options.find(o => o.id === optionId);
+                const newPoints = [...(option.controlPoints || [])];
+                
+                if (newPoints[index]) {
+                    newPoints[index] = { ...newPoints[index], x: worldPos.x, y: worldPos.y };
+                    onUpdateOption(nodeId, optionId, 'controlPoints', newPoints);
+                }
             }
-          }, [draggingNodeId, dragOffset, nodes, onUpdateNode]);
+          }, [isPanning, draggingNodeId, draggingControlPoint, lastMousePos, dragOffset, onUpdateNode, onUpdateOption, screenToWorld, nodes]);
 
-          const handleMouseUp = () => setDraggingNodeId(null);
+          const handleMouseUp = () => {
+              setDraggingNodeId(null);
+              setIsPanning(false);
+              setDraggingControlPoint(null);
+          };
 
           useEffect(() => {
-            if (draggingNodeId) {
+            if (draggingNodeId || isPanning || draggingControlPoint) {
               window.addEventListener('mousemove', handleMouseMove);
               window.addEventListener('mouseup', handleMouseUp);
             } else {
@@ -200,85 +318,148 @@
               window.removeEventListener('mousemove', handleMouseMove);
               window.removeEventListener('mouseup', handleMouseUp);
             };
-          }, [draggingNodeId, handleMouseMove]);
+          }, [draggingNodeId, isPanning, draggingControlPoint, handleMouseMove]);
 
-          const addOptionToNode = (nodeId) => {
-            const node = nodes.find(n => n.id === nodeId);
-            const targetId = nodes.length > 0 ? nodes[0].id : nodeId; 
-            const newOption = {
-              id: `opt-${Date.now()}`,
-              label: 'Nova Opció',
-              targetNodeId: targetId, 
-              startTime: 0,
-              endTime: 10,
-              singleUse: false,
-              style: { top: 50, left: 50, width: 20, height: 10, fontSize: 16, color: '#fff', backgroundColor: '#333', bgOpacity: 1, padding: 8, borderRadius: 4, fontFamily: 'sans-serif', fontWeight: 'normal', fontStyle: 'normal' }
-            };
-            onUpdateNode(nodeId, 'options', [...node.options, newOption]);
-          };
-
-          const updateNodeOption = (nodeId, optionId, field, value) => {
-            const node = nodes.find(n => n.id === nodeId);
-            const updatedOptions = node.options.map(opt => opt.id === optionId ? { ...opt, [field]: value } : opt);
-            onUpdateNode(nodeId, 'options', updatedOptions);
-          };
-          
-          const deleteNodeOption = (nodeId, optionId) => {
-            const node = nodes.find(n => n.id === nodeId);
-            const updatedOptions = node.options.filter(opt => opt.id !== optionId);
-            onUpdateNode(nodeId, 'options', updatedOptions);
-          };
+          const zoomIn = () => setViewport(prev => ({ ...prev, zoom: Math.min(prev.zoom + 0.2, 4) }));
+          const zoomOut = () => setViewport(prev => ({ ...prev, zoom: Math.max(prev.zoom - 0.2, 0.2) }));
+          const resetView = () => setViewport({ x: 0, y: 0, zoom: 1 });
 
           return (
-            <div ref={containerRef} className="flex-1 bg-gray-950 overflow-auto relative min-h-full cursor-crosshair" style={{ backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-              <div className="relative" style={{ minWidth: '3000px', minHeight: '3000px' }}>
+            <div 
+                ref={containerRef} 
+                className="flex-1 bg-gray-950 overflow-hidden relative min-h-full cursor-crosshair select-none" 
+                onWheel={handleWheel}
+                onMouseDown={(e) => handleMouseDown(e, null)}
+                style={{
+                    backgroundImage: 'radial-gradient(#374151 1px, transparent 1px)', 
+                    backgroundSize: `${20 * viewport.zoom}px ${20 * viewport.zoom}px`,
+                    backgroundPosition: `${viewport.x}px ${viewport.y}px`
+                }}
+            >
+              <div style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.zoom})`, transformOrigin: '0 0', width: '100%', height: '100%' }}>
                 {nodes.length === 0 && (
-                    <div className="absolute top-20 left-20 text-gray-500 flex flex-col items-center pointer-events-none">
+                    <div className="absolute top-20 left-20 text-gray-500 flex flex-col items-center pointer-events-none transform scale-100 origin-top-left">
                         <Network size={64} className="mb-4 opacity-20"/>
                         <p className="text-xl font-semibold opacity-40">Llenç buit</p>
-                        <p className="text-sm opacity-30">Afegeix una nova escena per començar</p>
                     </div>
                 )}
-                <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+                
+                <svg className="absolute top-0 left-0 overflow-visible pointer-events-none z-0" style={{ width: 1, height: 1 }}>
                   <defs><marker id="arrowhead" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 L2,2" fill="#6b7280" /></marker></defs>
-                  {nodes.map(node => node.options.map((opt, idx) => {
-                      if (!opt.targetNodeId) return null; 
-                      const targetNode = nodes.find(n => n.id === opt.targetNodeId);
-                      if (!targetNode) return null;
-                      
-                      const isConditional = (opt.condition && opt.condition.variable) || opt.singleUse;
-                      const dashArray = isConditional ? "5,5" : "0";
+                  {nodes.map(node => {
+                    const optionLinks = node.options.map((opt, idx) => {
+                        if (!opt.targetNodeId) return null; 
+                        const targetNode = nodes.find(n => n.id === opt.targetNodeId);
+                        if (!targetNode) return null;
+                        
+                        const isConditional = (opt.condition && opt.condition.variable) || opt.singleUse;
+                        const dashArray = isConditional ? "5,5" : "0";
 
-                      const startX = (node.position?.x || 0) + 280;
-                      const startY = (node.position?.y || 0) + 110 + (idx * 36);
-                      const endX = targetNode.position?.x || 0;
-                      const endY = (targetNode.position?.y || 0) + 30;
-                      const cp1X = startX + (endX - startX) / 2;
-                      
-                      return (
-                        <path 
-                            key={opt.id} 
-                            d={`M ${startX} ${startY} C ${cp1X} ${startY}, ${cp1X} ${endY}, ${endX} ${endY}`} 
-                            stroke={node.color || '#4b5563'} 
-                            strokeWidth="3" 
-                            fill="none" 
-                            markerEnd="url(#arrowhead)" 
-                            className="opacity-60" 
-                            strokeDasharray={dashArray}
-                        />
-                      );
-                  }))}
+                        const startX = (node.position?.x || 0) + 280;
+                        const startY = (node.position?.y || 0) + 110 + (idx * 36);
+                        const endX = targetNode.position?.x || 0;
+                        const endY = (targetNode.position?.y || 0) + 30;
+
+                        const pathPoints = [
+                            { x: startX, y: startY },
+                            ...(opt.controlPoints || []),
+                            { x: endX, y: endY }
+                        ];
+                        
+                        const pathString = generateSmoothPath(pathPoints);
+                        
+                        return (
+                            <g key={opt.id} className="group-link">
+                                <path 
+                                    d={pathString} 
+                                    stroke="transparent" 
+                                    strokeWidth="20" 
+                                    fill="none" 
+                                    className="pointer-events-auto cursor-crosshair"
+                                    onDoubleClick={(e) => handleAddControlPoint(e, node.id, opt.id)}
+                                />
+                                <path 
+                                    d={pathString} 
+                                    stroke={node.color || '#4b5563'} 
+                                    strokeWidth="3" 
+                                    fill="none" 
+                                    markerEnd="url(#arrowhead)" 
+                                    className="opacity-60 pointer-events-none" 
+                                    strokeDasharray={dashArray}
+                                />
+                                {opt.controlPoints && opt.controlPoints.map((cp, i) => (
+                                    <circle 
+                                        key={i}
+                                        cx={cp.x} 
+                                        cy={cp.y} 
+                                        r={6 / viewport.zoom}
+                                        fill="white" 
+                                        stroke="#3b82f6"
+                                        strokeWidth="2"
+                                        className="pointer-events-auto cursor-move"
+                                        onMouseDown={(e) => handleControlPointMouseDown(e, node.id, opt.id, i)}
+                                        onDoubleClick={(e) => handleRemoveControlPoint(e, node.id, opt.id, i)}
+                                    />
+                                ))}
+                            </g>
+                        );
+                    });
+
+                    let autoNavLink = null;
+                    if (node.defaultNextNodeId) {
+                        const targetNode = nodes.find(n => n.id === node.defaultNextNodeId);
+                        if (targetNode) {
+                            const startX = (node.position?.x || 0) + 280;
+                            const startY = (node.position?.y || 0) + 110 + (node.options.length * 36) + 15;
+                            const endX = targetNode.position?.x || 0;
+                            const endY = (targetNode.position?.y || 0) + 30;
+                            
+                            const cp1X = startX + (endX - startX) / 2;
+                            const d = `M ${startX} ${startY} C ${cp1X} ${startY}, ${cp1X} ${endY}, ${endX} ${endY}`;
+                            
+                            autoNavLink = (
+                                <path 
+                                    key={`auto-${node.id}`} 
+                                    d={d} 
+                                    stroke="white" 
+                                    strokeWidth="2" 
+                                    fill="none" 
+                                    markerEnd="url(#arrowhead)" 
+                                    className="opacity-40" 
+                                    strokeDasharray="4,4"
+                                />
+                            );
+                        }
+                    }
+
+                    return (
+                        <React.Fragment key={node.id}>
+                            {optionLinks}
+                            {autoNavLink}
+                        </React.Fragment>
+                    );
+                  })}
                 </svg>
-                {nodes.map(node => (
-                  <div key={node.id} className="absolute w-[280px] bg-gray-800 rounded-lg shadow-2xl border border-gray-700 flex flex-col z-10 group" style={{ left: node.position?.x || 0, top: node.position?.y || 0 }}>
+
+                {nodes.map(node => {
+                  const textColor = getContrastYIQ(node.color || '#374151');
+                  const iconColor = textColor === 'black' ? 'text-black/60 hover:text-black' : 'text-white/60 hover:text-white';
+                  const titleColor = textColor === 'black' ? 'text-black' : 'text-white';
+
+                  return (
+                  <div 
+                    key={node.id} 
+                    className="absolute w-[280px] bg-gray-800 rounded-lg shadow-2xl border border-gray-700 flex flex-col z-10 group" 
+                    style={{ left: node.position?.x || 0, top: node.position?.y || 0 }}
+                  >
                     <div className="h-10 rounded-t-lg flex items-center justify-between px-3 cursor-move select-none" style={{ backgroundColor: node.color || '#374151' }} onMouseDown={(e) => handleMouseDown(e, node.id)}>
-                      <div className="flex items-center gap-2 text-white font-bold text-sm truncate max-w-[140px]"><Move size={14} className="opacity-50" /><span className="truncate">{node.title}</span></div>
+                      <div className={`flex items-center gap-2 ${titleColor} font-bold text-sm truncate max-w-[140px]`}><Move size={14} className="opacity-50" /><span className="truncate">{node.title}</span></div>
                       <div className="flex items-center gap-1">
-                        <button onClick={(e) => { e.stopPropagation(); onPreviewNode(node.id); }} className="text-white/80 hover:text-green-300 p-1 hover:bg-black/20 rounded" title="Previsualitzar"><PlayCircle size={14} /></button>
-                        <button onClick={(e) => { e.stopPropagation(); onSetStartNode(node.id); }} className={`p-1 rounded hover:bg-black/20 ${startNodeId === node.id ? 'text-green-400' : 'text-white/40 hover:text-white'}`} title="Marcar inici"><Flag size={14} fill={startNodeId === node.id ? "currentColor" : "none"}/></button>
-                        <div className="w-px h-4 bg-white/20 mx-1"></div>
+                        <button onClick={(e) => { e.stopPropagation(); onPreviewNode(node.id); }} className={`${iconColor} p-1 hover:bg-black/10 rounded`} title="Previsualitzar"><PlayCircle size={14} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); onSetStartNode(node.id); }} className={`p-1 rounded hover:bg-black/10 ${startNodeId === node.id ? (textColor==='black'?'text-green-700':'text-green-400') : iconColor}`} title="Marcar inici"><Flag size={14} fill={startNodeId === node.id ? "currentColor" : "none"}/></button>
+                        <div className={`w-px h-4 mx-1 ${textColor === 'black' ? 'bg-black/20' : 'bg-white/20'}`}></div>
                         <input type="color" value={node.color || '#374151'} onChange={(e) => onUpdateNode(node.id, 'color', e.target.value)} className="w-5 h-5 rounded cursor-pointer border-none bg-transparent" />
-                        <button onClick={(e) => { e.stopPropagation(); onDeleteNode(node.id); }} className="text-white/60 hover:text-red-400 hover:bg-black/20 rounded p-1 transition-colors"><X size={14} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); onDeleteNode(node.id); }} className={`${iconColor} hover:text-red-500 rounded p-1 transition-colors`}><X size={14} /></button>
                       </div>
                     </div>
                     <div className="p-3 space-y-3 bg-gray-800 rounded-b-lg">
@@ -288,14 +469,12 @@
                         {node.options.map((opt) => (
                           <div key={opt.id} className="flex items-center gap-1 bg-gray-900 p-1.5 rounded border border-gray-700 relative">
                             <input type="text" value={opt.label} onChange={(e) => updateNodeOption(node.id, opt.id, 'label', e.target.value)} className="w-24 bg-transparent border-none text-xs text-white p-0 truncate font-medium" />
-                            
                             <div className="flex gap-0.5">
                                 {opt.singleUse && <Ghost size={10} className="text-purple-400" title="Un sol ús"/>}
                                 {opt.condition && opt.condition.variable && <Lock size={10} className="text-yellow-400" title={`Condició: ${opt.condition.variable}`}/>}
                                 {opt.effects && opt.effects.length > 0 && <Zap size={10} className="text-blue-400" title="Canvi variable"/>}
                                 {opt.useKeyframes && <MapPin size={10} className="text-orange-400" title="Animació"/>}
                             </div>
-
                             <ArrowRightCircle size={12} className="text-gray-500 shrink-0" />
                             <select value={opt.targetNodeId || ""} onChange={(e) => updateNodeOption(node.id, opt.id, 'targetNodeId', e.target.value)} className="flex-1 bg-gray-800 text-[10px] text-gray-300 border-none rounded py-0.5 px-1 h-5 cursor-pointer">
                                 <option value="">Text</option>
@@ -309,12 +488,18 @@
                       <button onClick={() => { onSelectNode(node.id); }} className="w-full mt-2 py-1 bg-gray-700 hover:bg-gray-600 text-xs text-gray-300 rounded flex items-center justify-center gap-2"><Settings size={12} /> Editar</button>
                     </div>
                   </div>
-                ))}
+                )})}
+              </div>
+
+              <div className="absolute bottom-6 right-6 flex flex-col gap-2 z-50">
+                  <button onClick={zoomIn} className="p-2 bg-gray-800 hover:bg-gray-700 text-white rounded shadow border border-gray-600" title="Zoom In"><ZoomIn size={20}/></button>
+                  <button onClick={zoomOut} className="p-2 bg-gray-800 hover:bg-gray-700 text-white rounded shadow border border-gray-600" title="Zoom Out"><ZoomOut size={20}/></button>
+                  <button onClick={resetView} className="p-2 bg-gray-800 hover:bg-gray-700 text-white rounded shadow border border-gray-600" title="Centrar / Reset"><Compass size={20}/></button>
               </div>
             </div>
           );
         };
-
+        
         function App() {
           const [nodes, setNodes] = useState(() => {
             const saved = localStorage.getItem('intervideo_project');
@@ -335,18 +520,15 @@
           const [hoveredOptionId, setHoveredOptionId] = useState(null); 
           const [draggedSceneIdx, setDraggedSceneIdx] = useState(null);
           
-          // Video State
           const [isPlaying, setIsPlaying] = useState(false);
           const [currentTime, setCurrentTime] = useState(0);
-          const [duration, setDuration] = useState(0);
+          const [duration, setDuration] = useState(0); 
           const [videoError, setVideoError] = useState(null);
           const [fileBlobs, setFileBlobs] = useState({}); 
           const [videosLoadedCount, setVideosLoadedCount] = useState(0); 
           
-          // Mides del vídeo per responsivitat
           const [videoDimensions, setVideoDimensions] = useState({ width: 0, height: 0 });
 
-          // Logic State
           const [clickedOptions, setClickedOptions] = useState(new Set()); 
           const [runtimeVariables, setRuntimeVariables] = useState({}); 
           const [showMissingFilesModal, setShowMissingFilesModal] = useState(false); 
@@ -355,17 +537,12 @@
           const [showDeleteModal, setShowDeleteModal] = useState(false);
           const [nodeToDelete, setNodeToDelete] = useState(null);
           
-          // Transition State
           const [isTransitioning, setIsTransitioning] = useState(false);
-
-          // Inspector State
           const [activeTab, setActiveTab] = useState('properties'); 
 
-          // Dragging & Clipboard
           const [dragState, setDragState] = useState({ isDragging: false, type: null, targetId: null, startX: 0, startY: 0, initialVal: {} });
           const [clipboardStyle, setClipboardStyle] = useState(null);
 
-          // Undo/Redo History
           const historyRef = useRef({ past: [], future: [] });
 
           const videoRef = useRef(null);
@@ -383,11 +560,23 @@
           const youtubeId = activeNode ? getYoutubeId(activeNode.videoUrl) : null;
           const isImage = activeNode ? isImageFile(activeNode.videoUrl) : false;
 
-          // --- AUTO-SAVE ---
           useEffect(() => {
             const projectData = { nodes, variables, startNodeId };
             localStorage.setItem('intervideo_project', JSON.stringify(projectData));
           }, [nodes, variables, startNodeId]);
+
+          // --- HELPER FOR UPDATING OPTIONS IN APP ---
+          const handleUpdateOption = (nodeId, optionId, field, value) => {
+               setNodes(prev => prev.map(n => {
+                  if (n.id === nodeId) {
+                      return {
+                          ...n,
+                          options: n.options.map(o => o.id === optionId ? { ...o, [field]: value } : o)
+                      };
+                  }
+                  return n;
+              }));
+          };
 
           // --- RESPONSIVE VIDEO SIZE ---
           useEffect(() => {
@@ -407,9 +596,6 @@
                       setVideoDimensions({ width: finalW, height: finalH });
                   } else if (isImage && videoContainerRef.current) {
                       const container = videoContainerRef.current;
-                      // Per simplicitat en l'editor, usem el contenidor sencer per imatges,
-                      // o podríem fer un object-contain real si tinguéssim les dimensions naturals de la img.
-                      // Aquí usem 100% per facilitar.
                       setVideoDimensions({ width: container.clientWidth, height: container.clientHeight });
                   }
               };
@@ -423,7 +609,6 @@
               };
           }, [activeNode, isImage]);
 
-          // --- UNDO / REDO LOGIC ---
           const saveHistory = () => {
             historyRef.current.past.push({ 
                 nodes: JSON.parse(JSON.stringify(nodes)), 
@@ -460,7 +645,6 @@
             setStartNodeId(next.startNodeId);
           }, [nodes, variables, startNodeId]);
 
-          // --- SCENE REORDERING HANDLERS ---
           const handleSceneDragStart = (e, index) => {
               e.dataTransfer.effectAllowed = 'move';
               setDraggedSceneIdx(index);
@@ -477,7 +661,6 @@
               setDraggedSceneIdx(null);
           };
 
-          // --- ANIMATION LOOP ---
           const animate = () => {
              const now = Date.now();
              const dt = (now - lastTimeRef.current) / 1000;
@@ -488,12 +671,8 @@
              } else if (isPlaying && isImage) {
                  setCurrentTime(prev => {
                      const next = prev + dt;
-                     // Auto-nav for image duration
                      const imgDur = activeNode?.duration || 10;
-                     if (next >= imgDur && mode === 'preview') {
-                         // We'll let the effect handle the transition
-                         return imgDur;
-                     }
+                     if (next >= imgDur && mode === 'preview') return imgDur;
                      return next >= imgDur ? imgDur : next; 
                  });
              }
@@ -505,7 +684,6 @@
               return () => cancelAnimationFrame(requestRef.current);
           }, [isPlaying, isImage, mode, activeNode]); 
 
-          // --- TOGGLE PLAY ---
           const togglePlay = useCallback(() => {
               if (youtubeId) return;
               if (isImage) {
@@ -525,7 +703,6 @@
               }
           }, [youtubeId, isImage]);
 
-          // --- KEYBOARD SHORTCUTS ---
           useEffect(() => {
             const handleKeyDown = (e) => {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -595,8 +772,6 @@
             return () => window.removeEventListener('keydown', handleKeyDown);
           }, [mode, selectedNodeId, selectedOptionId, activeNode, undo, redo, nodes, variables, startNodeId, duration, isImage, togglePlay]);
 
-
-          // --- Reset & Transition Logic ---
           useEffect(() => {
             setVideoError(null);
             setShowMissingFilesModal(false);
@@ -610,18 +785,58 @@
             }
           }, [activeNodeId, mode]);
 
-          // --- MEDIA LOADING EFFECT ---
+          // --- MEDIA LOADING EFFECT (FIXED) ---
+          useEffect(() => {
+            const video = videoRef.current;
+            if (!video || youtubeId) return;
+
+            const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+            const handleLoadedMetadata = () => {
+              if(video.duration && !isNaN(video.duration) && video.duration !== Infinity) {
+                  setDuration(video.duration);
+              }
+              setVideoError(null); 
+              setShowMissingFilesModal(false);
+            };
+            const handleError = (e) => {
+                const error = e.target.error;
+                let msg = "No s'ha pogut carregar el vídeo.";
+                if (error) {
+                    if (error.code === 4) {
+                        msg = "Vídeo no trobat. Enllaça els fitxers locals.";
+                        setShowMissingFilesModal(true);
+                    } else if (error.code === 3) {
+                        msg = "Error de descodificació.";
+                    }
+                }
+                setVideoError(msg);
+                setIsPlaying(false);
+            };
+
+            video.addEventListener('timeupdate', handleTimeUpdate);
+            video.addEventListener('loadedmetadata', handleLoadedMetadata);
+            video.addEventListener('error', handleError);
+            
+            if (video.readyState >= 1) {
+                handleLoadedMetadata();
+            }
+
+            return () => {
+              video.removeEventListener('timeupdate', handleTimeUpdate);
+              video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+              video.removeEventListener('error', handleError);
+            };
+          }, [activeNodeId, mode, activeNode?.videoUrl, youtubeId]);
+
           useEffect(() => {
             if (isImage) {
-                // Image handling
-                const imgDur = activeNode.duration || 10;
+                const imgDur = activeNode?.duration || 10;
                 setDuration(imgDur);
                 setVideoError(null);
                 setShowMissingFilesModal(false);
-                setIsPlaying(true); // Autoplay images by default
+                setIsPlaying(true); 
                 setCurrentTime(0);
             } else if (videoRef.current && !youtubeId) {
-                // Video handling
                 videoRef.current.load();
                 if (mode === 'preview') {
                     videoRef.current.play().catch(e => console.log("Autoplay blocked", e));
@@ -633,10 +848,15 @@
             }
           }, [activeNodeId, mode, activeNode?.videoUrl, fileBlobs, youtubeId, isImage]); 
 
-          // --- AUTO NAVIGATION EFFECT FOR IMAGES ---
+          // --- SYNC IMAGE DURATION ---
+          useEffect(() => {
+              if (isImage) {
+                  setDuration(activeNode?.duration || 10);
+              }
+          }, [activeNode?.duration, isImage]);
+
           useEffect(() => {
             if (mode === 'preview' && isImage && isPlaying && duration > 0 && currentTime >= duration) {
-                // Image finished duration
                 setIsPlaying(false);
                 handleAutoNavigation();
             }
@@ -716,14 +936,17 @@
             reader.readAsText(file);
             e.target.value = ''; 
           };
+          
           const handleExportZip = async () => {
-            try {
-              const JSZip = await loadJSZip();
-              const zip = new JSZip();
-              const projectData = { version: '2.0', startNodeId, nodes, variables };
-              zip.file("project.json", JSON.stringify(projectData, null, 2));
-              
-              const viewerContent = `<!DOCTYPE html><html lang="ca"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Visualitzador</title><style>body{background:#000;margin:0;overflow:hidden;font-family:sans-serif}#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;background:black}video,iframe,img{width:100%;height:100%;object-fit:contain;border:none;display:block}.interactive-btn{position:absolute;transform:translate(-50%,-50%);cursor:pointer;border:none;outline:none;transition:opacity 0.5s;z-index:10;display:none;opacity:0;white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,0.3);align-items:center;justify-content:center}.interactive-btn.clickable{cursor:pointer}.interactive-btn.clickable:hover{transform:translate(-50%,-50%)scale(1.05);z-index:20}.interactive-btn.visible{display:flex;opacity:1}.interactive-btn.hidden-btn{display:none!important}.spinner{position:absolute;z-index:50;border:4px solid rgba(255,255,255,0.1);width:36px;height:36px;border-radius:50%;border-left-color:#3b82f6;animation:spin 1s ease-in-out infinite}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}#error-message{position:absolute;z-index:200;display:none;text-align:center;color:#f87171;background:rgba(20,20,20,0.95);padding:2rem;border-radius:8px;border:1px solid #7f1d1d;max-width:80%}.fade-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background-color:black;opacity:0;pointer-events:none;transition:opacity 0.5s ease;z-index:100}.fade-overlay.active{opacity:1;pointer-events:auto}#start-overlay{position:absolute;z-index:150;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;flex-direction:column;cursor:pointer}.play-icon-large{width:80px;height:80px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;transition:transform 0.2s}#start-overlay:hover .play-icon-large{transform:scale(1.1);background:rgba(255,255,255,0.4)}#manual-load-overlay{position:absolute;z-index:250;top:0;left:0;width:100%;height:100%;background:#111827;display:none;align-items:center;justify-content:center;flex-direction:column;padding:20px}#custom-tooltip{position:absolute;background:rgba(0,0,0,0.85);color:white;padding:6px 12px;border-radius:4px;font-size:14px;pointer-events:none;z-index:300;display:none;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-12px;box-shadow:0 2px 4px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.2)}#custom-tooltip::after{content:'';position:absolute;top:100%;left:50%;margin-left:-5px;border-width:5px;border-style:solid;border-color:rgba(0,0,0,0.85) transparent transparent transparent}#player-container{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background-color:#000}#media-wrapper{position:relative;box-shadow:0 0 20px rgba(0,0,0,0.5);width:100%;height:100%}</style></head><body><div id="player-container"><div id="fade-overlay" class="fade-overlay"></div><div id="loading" class="spinner"></div><div id="custom-tooltip"></div><div id="start-overlay" onclick="startPlaybackManual()"><div class="play-icon-large"><svg width="40" height="40" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></div><p class="mt-4 text-lg font-semibold">Clica per començar</p></div><div id="manual-load-overlay"><div class="text-center max-w-lg"><svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg><h2 class="text-2xl font-bold text-white mb-2">Mode Local Detectat</h2><p class="text-gray-400 mb-6">Si us plau, selecciona el fitxer <strong>project.json</strong> manualment per continuar.</p><label class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded cursor-pointer transition-colors inline-flex items-center gap-2">Seleccionar project.json<input type="file" id="json-input" accept=".json" class="hidden" onchange="loadLocalJSON(this)"></label></div></div><div id="error-message"><h2 class="text-xl font-bold mb-2">Error</h2><p id="error-text"></p></div><div id="media-wrapper"></div></div><script>/* INJECTED VIEWER LOGIC */<\/script></body></html>`;
+             // ... (ZIP Export Logic - same as before)
+             // Keeping it short here to save space, but ensure the loadJSZip and logic is present
+             try {
+                  const JSZip = await loadJSZip();
+                  const zip = new JSZip();
+                  const projectData = { version: '2.0', startNodeId, nodes, variables };
+                  zip.file("project.json", JSON.stringify(projectData, null, 2));
+                  // NOTE: Replace this string with the actual content of index.html we generated
+                  const viewerContent = `<!DOCTYPE html><html lang="ca"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Visualitzador</title><style>body{background:#000;margin:0;overflow:hidden;font-family:sans-serif}#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;background:black}video,iframe,img{width:100%;height:100%;object-fit:contain;border:none;display:block}#media-wrapper{position:relative;box-shadow:0 0 20px rgba(0,0,0,0.5);width:100%;height:100%}.interactive-btn{position:absolute;transform:translate(-50%,-50%);border:none;outline:none;transition:opacity 0.5s;z-index:10;display:none;opacity:0;white-space:nowrap;align-items:center;justify-content:center}.interactive-btn.clickable{cursor:pointer}.interactive-btn.clickable:hover{transform:translate(-50%,-50%)scale(1.05);z-index:20}.interactive-btn.visible{display:flex;opacity:1}.interactive-btn.hidden-btn{display:none!important}.spinner{position:absolute;z-index:50;border:4px solid rgba(255,255,255,0.1);width:36px;height:36px;border-radius:50%;border-left-color:#3b82f6;animation:spin 1s ease-in-out infinite}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}#error-message{position:absolute;z-index:200;display:none;text-align:center;color:#f87171;background:rgba(20,20,20,0.95);padding:2rem;border-radius:8px;border:1px solid #7f1d1d;max-width:80%}.fade-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background-color:black;opacity:0;pointer-events:none;transition:opacity 0.5s ease;z-index:100}.fade-overlay.active{opacity:1;pointer-events:auto}#start-overlay{position:absolute;z-index:150;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;flex-direction:column;cursor:pointer}.play-icon-large{width:80px;height:80px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;transition:transform 0.2s}#start-overlay:hover .play-icon-large{transform:scale(1.1);background:rgba(255,255,255,0.4)}#manual-load-overlay{position:absolute;z-index:250;top:0;left:0;width:100%;height:100%;background:#111827;display:none;align-items:center;justify-content:center;flex-direction:column;padding:20px}#custom-tooltip{position:absolute;background:rgba(0,0,0,0.85);color:white;padding:6px 12px;border-radius:4px;font-size:14px;pointer-events:none;z-index:300;display:none;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-12px;box-shadow:0 2px 4px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.2)}#custom-tooltip::after{content:'';position:absolute;top:100%;left:50%;margin-left:-5px;border-width:5px;border-style:solid;border-color:rgba(0,0,0,0.85) transparent transparent transparent}#player-container{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background-color:#000}</style></head><body><div id="player-container"><div id="fade-overlay" class="fade-overlay"></div><div id="loading" class="spinner"></div><div id="custom-tooltip"></div><div id="start-overlay" onclick="startPlaybackManual()"><div class="play-icon-large"><svg width="40" height="40" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></div><p class="mt-4 text-lg font-semibold">Clica per començar</p></div><div id="manual-load-overlay"><div class="text-center max-w-lg"><svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg><h2 class="text-2xl font-bold text-white mb-2">Mode Local Detectat</h2><p class="text-gray-400 mb-6">Si us plau, selecciona el fitxer <strong>project.json</strong> manualment per continuar.</p><label class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded cursor-pointer transition-colors inline-flex items-center gap-2">Seleccionar project.json<input type="file" id="json-input" accept=".json" class="hidden" onchange="loadLocalJSON(this)"></label></div></div><div id="error-message"><h2 class="text-xl font-bold mb-2">Error</h2><p id="error-text"></p></div><div id="media-wrapper"></div></div><script>/* INJECTED VIEWER LOGIC */<\/script></body></html>`;
               
               zip.file("index.html", viewerContent);
               zip.folder("videos");
@@ -809,8 +1032,8 @@
               id: `opt-${Date.now()}`,
               label: 'Opció Nova',
               targetNodeId: nodes.length > 0 ? nodes[0].id : activeNode.id,
-              startTime: Math.floor(currentTime),
-              endTime: duration || Math.floor(currentTime) + 10,
+              startTime: 0,
+              endTime: duration > 0 ? duration : 10, // Default to full duration if known
               singleUse: false,
               isHotspot: false, 
               hoverText: '',    
@@ -959,23 +1182,42 @@
               batchUpdateOptionStyles(dragState.targetId, { width: newW, height: newH });
             }
             if (['timeline-move', 'timeline-start', 'timeline-end'].includes(dragState.type)) {
+              // We need the precise width of the timeline content
+              // The `timelineTrackRef` points to the container. The bars are inside.
               const rectTL = timelineTrackRef.current?.getBoundingClientRect();
-              if (!rectTL || duration === 0) return;
-              const deltaSeconds = ((e.clientX - dragState.startX) / rectTL.width) * duration;
+              if (!rectTL) return;
+              
+              // If duration is 0 or NaN, assume default 10 to avoid infinity, 
+              // but if it's a real video without metadata yet, this might be tricky.
+              // We fallback to 10 if invalid.
+              const safeDuration = (duration > 0) ? duration : 10;
+              
+              // We removed the padding from the `timelineTrackRef` so width is correct now?
+              // The ref is on `<div ref={timelineTrackRef} className="h-6 relative w-full ...">`
+              // This div has NO padding. So its width is the full timeline width.
+              const trackWidth = rectTL.width;
+              
+              // Calculate seconds change based on X delta
+              const deltaSeconds = ((e.clientX - dragState.startX) / trackWidth) * safeDuration;
+              
               const opt = activeNode.options.find(o => o.id === dragState.targetId);
               if (!opt) return;
+
               if (dragState.type === 'timeline-move') {
                 const span = dragState.initialVal.endTime - dragState.initialVal.startTime;
                 let start = Math.max(0, dragState.initialVal.startTime + deltaSeconds);
                 let end = start + span;
-                if (end > duration) { end = duration; start = duration - span; }
+                // Clamp to safeDuration
+                if (end > safeDuration) { end = safeDuration; start = safeDuration - span; }
                 batchUpdateOptionFields(opt.id, { startTime: start, endTime: end });
               } else if (dragState.type === 'timeline-start') {
                 let start = Math.max(0, dragState.initialVal.startTime + deltaSeconds);
+                // Can't overlap end
                 if (start >= dragState.initialVal.endTime - 0.5) start = dragState.initialVal.endTime - 0.5;
                 batchUpdateOptionFields(opt.id, { startTime: start });
               } else if (dragState.type === 'timeline-end') {
-                let end = Math.min(duration, dragState.initialVal.endTime + deltaSeconds);
+                let end = Math.min(safeDuration, dragState.initialVal.endTime + deltaSeconds);
+                // Can't overlap start
                 if (end <= dragState.initialVal.startTime + 0.5) end = dragState.initialVal.startTime + 0.5;
                 batchUpdateOptionFields(opt.id, { endTime: end });
               }
@@ -1002,7 +1244,12 @@
             if (dragState.isDragging || youtubeId) return;
             const rect = timelineTrackRef.current?.getBoundingClientRect();
             if (!rect) return;
-            const newTime = ((e.clientX - rect.left) / rect.width) * duration;
+            
+            // Ref is now on the full width container (no padding)
+            const clickX = e.clientX - rect.left;
+            const safeDuration = (duration > 0) ? duration : 10;
+            const newTime = (clickX / rect.width) * safeDuration;
+            
             if (isFinite(newTime)) { setCurrentTime(newTime); if (videoRef.current) videoRef.current.currentTime = newTime; }
           };
 
@@ -1046,7 +1293,7 @@
                 {mode === 'graph' ? (
                    <div className="flex-1 flex flex-col relative">
                      <div className="absolute top-4 left-4 z-20"><button onClick={addNode} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2"><Plus size={16} /> Nova Escena</button></div>
-                     <NodeGraph nodes={nodes} onUpdateNode={updateNode} onSelectNode={(id) => { setSelectedNodeId(id); setMode('edit'); }} onDeleteNode={deleteNode} startNodeId={startNodeId} onSetStartNode={setStartNodeId} onPreviewNode={(id) => { setCurrentNodeId(id); setMode('preview'); setClickedOptions(new Set()); }}/>
+                     <NodeGraph nodes={nodes} onUpdateNode={updateNode} onSelectNode={(id) => { setSelectedNodeId(id); setMode('edit'); }} onDeleteNode={deleteNode} startNodeId={startNodeId} onSetStartNode={setStartNodeId} onPreviewNode={(id) => { setCurrentNodeId(id); setMode('preview'); setClickedOptions(new Set()); }} onUpdateOption={handleUpdateOption} />
                    </div>
                 ) : (
                   <>
@@ -1167,16 +1414,7 @@
                                         ${isSelected ? 'ring-2 ring-yellow-400 shadow-2xl z-50' : ''}
                                         `}
                                         style={{ 
-                                            // Font size es ara un % de l'alçada del wrapper per ser proporcional
-                                            // Però com que l'editor usa px, aquí ho simulem o ho convertim.
-                                            // La millor aproximació en CSS pur sense calc complexes és usar % o vw/vh, 
-                                            // però aquí usem inline styles.
-                                            // Per simplicitat, mantenim PX per font (com demanava l'usuari originalment),
-                                            // però si es vol escalar, caldria fer: 
-                                            // fontSize: (currentStyle.fontSize / 900) * videoDimensions.height + 'px'
-                                            // Assumim 900px com alçada de disseny base.
                                             fontSize: `${(currentStyle.fontSize / 900) * videoDimensions.height}px`,
-                                            
                                             color: currentStyle.color, 
                                             backgroundColor: finalBgColor, 
                                             padding: `${currentStyle.padding}px`, 
@@ -1190,6 +1428,17 @@
                                         {!opt.isHotspot && opt.label} 
                                       </button>
                                       
+                                      {mode === 'edit' && (
+                                         <>
+                                            <span className="absolute -top-6 left-0 bg-green-900/80 text-[10px] text-white px-1.5 rounded-sm whitespace-nowrap pointer-events-none shadow-sm border border-green-500/30 z-50">
+                                                {opt.startTime.toFixed(1)}s
+                                            </span>
+                                            <span className="absolute -top-6 right-0 bg-red-900/80 text-[10px] text-white px-1.5 rounded-sm whitespace-nowrap pointer-events-none shadow-sm border border-red-500/30 z-50">
+                                                {(opt.endTime || duration).toFixed(1)}s
+                                            </span>
+                                         </>
+                                      )}
+
                                       {mode === 'preview' && hoveredOptionId === opt.id && opt.hoverText && (
                                           <div className="hotspot-tooltip">{opt.hoverText}</div>
                                       )}
@@ -1209,14 +1458,24 @@
                               <div className="flex items-center gap-4"><button onClick={togglePlay} className="text-white hover:text-blue-400">{isPlaying ? <Pause size={16}/> : <Play size={16}/>}</button><span className="text-xs font-mono text-gray-300 w-24">{currentTime.toFixed(2)}s / {duration.toFixed(2)}s</span></div>
                            </div>
                            <div className="flex-1 flex flex-col min-h-0 bg-gray-900 relative">
-                              <div className="absolute inset-0 flex justify-between px-4 pointer-events-none opacity-10">{[...Array(11)].map((_, i) => <div key={i} className="h-full w-px bg-white"></div>)}</div>
-                              <div ref={timelineTrackRef} className="h-6 w-full bg-gray-800 border-b border-gray-700 relative cursor-pointer px-4 box-border shrink-0 z-10" onClick={handleTimelineClick}>
-                                 <div className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none" style={{ left: `${(currentTime / duration) * 100}%`, marginLeft: '16px' }}></div>
+                              <div className="absolute inset-0 px-4">
+                                  {/* Eliminat grid rígid, ara és lliure */}
+                              </div>
+                              <div ref={timelineTrackRef} className="h-6 w-full bg-gray-800 border-b border-gray-700 relative cursor-pointer" onClick={handleTimelineClick}>
+                                 <div className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10 pointer-events-none" style={{ left: `${(currentTime / ((duration > 0) ? duration : 1)) * 100}%` }}></div>
+                                 
+                                 {/* Time markers (Dynamic 0, 25, 50, 75, 100%) */}
+                                 <div className="absolute bottom-0 left-0 text-[9px] text-gray-500 select-none">0s</div>
+                                 <div className="absolute bottom-0 left-1/4 text-[9px] text-gray-500 select-none">{(duration*0.25).toFixed(1)}s</div>
+                                 <div className="absolute bottom-0 left-1/2 text-[9px] text-gray-500 select-none">{(duration*0.5).toFixed(1)}s</div>
+                                 <div className="absolute bottom-0 left-3/4 text-[9px] text-gray-500 select-none">{(duration*0.75).toFixed(1)}s</div>
+                                 <div className="absolute bottom-0 right-0 text-[9px] text-gray-500 select-none">{duration.toFixed(1)}s</div>
                               </div>
                               <div className="flex-1 overflow-y-auto p-2 px-4 relative z-0">
                                   {activeNode.options.map((opt, idx) => {
-                                      const leftPct = (opt.startTime / duration) * 100;
-                                      const widthPct = ((opt.endTime - opt.startTime) / duration) * 100;
+                                      const safeDur = (duration > 0) ? duration : 10;
+                                      const leftPct = (opt.startTime / safeDur) * 100;
+                                      const widthPct = ((opt.endTime - opt.startTime) / safeDur) * 100;
                                       const isSelected = selectedOptionId === opt.id;
                                       return (
                                           <div key={opt.id} onClick={(e) => { e.stopPropagation(); setSelectedOptionId(opt.id); }} className={`h-8 relative w-full bg-gray-800/50 rounded mb-1 border ${isSelected ? 'border-yellow-500' : 'border-gray-700/50'}`}>
@@ -1229,7 +1488,7 @@
                                                           key={ki} 
                                                           onClick={(e) => { e.stopPropagation(); seekToKeyframe(kf.time); }}
                                                           className={`absolute top-1/2 w-2 h-2 transform -translate-x-1/2 -translate-y-1/2 rotate-45 z-30 cursor-pointer ${isCurrent ? 'bg-red-500 scale-125' : 'bg-orange-400 hover:bg-orange-300'}`} 
-                                                          style={{ left: `${(kf.time / duration) * 100}%` }} 
+                                                          style={{ left: `${(kf.time / safeDur) * 100}%` }} 
                                                           title={`Keyframe: ${kf.time.toFixed(1)}s`}
                                                       ></div>
                                                   );
