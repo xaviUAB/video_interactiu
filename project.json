@@ -1,15 +1,91 @@
 {
   "version": "2.0",
-  "timestamp": 1766192222861,
-  "startNodeId": "escena-1766158052988",
+  "timestamp": 1766250999937,
+  "startNodeId": "escena-1766250265980",
   "nodes": [
+    {
+      "id": "escena-1766250265980",
+      "title": "Intro",
+      "videoUrl": "videos/Game of Thrones.jpg",
+      "position": {
+        "x": 55,
+        "y": 93
+      },
+      "color": "#6b7280",
+      "transitionType": "none",
+      "options": [],
+      "defaultNextNodeId": "escena-1766158052988",
+      "duration": 3
+    },
+    {
+      "id": "escena-1766158052988",
+      "title": "ImatgeBiblio",
+      "videoUrl": "videos/biblio01.jpg",
+      "position": {
+        "x": 164,
+        "y": 310
+      },
+      "color": "#6b7280",
+      "transitionType": "fade",
+      "options": [
+        {
+          "id": "opt-1766158064651",
+          "label": "Començar",
+          "targetNodeId": "intro",
+          "startTime": 0,
+          "endTime": 10,
+          "singleUse": false,
+          "isHotspot": true,
+          "hoverText": "",
+          "useKeyframes": true,
+          "keyframes": [
+            {
+              "time": 0,
+              "left": 57.028753993610216,
+              "top": 41.16656464640337,
+              "width": 13.738019169329087,
+              "height": 25.94568754080708
+            },
+            {
+              "time": 5.2840000000000025,
+              "left": 72.68370607028753,
+              "top": 52.46363577611048,
+              "width": 18.69009584664538,
+              "height": 49.79505992574432
+            },
+            {
+              "time": 7.089000000000029,
+              "left": 90.25559105431309,
+              "top": 48.90715042046195,
+              "width": 17.571884984025573,
+              "height": 70.08794695503302
+            }
+          ],
+          "condition": null,
+          "effects": [],
+          "style": {
+            "top": 48.90715042046195,
+            "left": 90.25559105431309,
+            "width": 17.571884984025573,
+            "height": 70.08794695503302,
+            "fontSize": 54,
+            "color": "#ffffff",
+            "backgroundColor": "#3b82f6",
+            "bgOpacity": 1,
+            "padding": 10,
+            "borderRadius": 8,
+            "fontFamily": "sans-serif"
+          }
+        }
+      ]
+    },
     {
       "id": "intro",
       "title": "Biblioteca",
       "videoUrl": "videos/biblioteca.mp4",
       "position": {
-        "x": 106,
-        "y": 346
+        "x": 451,
+        "y": 341
       },
       "color": "#3b82f6",
       "options": [
@@ -23,8 +99,8 @@
           "style": {
             "top": 81.20631937511016,
             "left": 24.920127795527158,
-            "width": 27.316293929712472,
-            "height": 17.7866917249075,
+            "width": 32.64544753472815,
+            "height": 14.721557625290641,
             "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
@@ -56,8 +132,8 @@
           "style": {
             "top": 82.91025973719748,
             "left": 80.35143769968052,
-            "width": 27.316293929712472,
-            "height": 17.7866917249075,
+            "width": 28.883692048834728,
+            "height": 13.328314852737524,
             "fontSize": 54,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
@@ -131,8 +207,8 @@
       "title": "Hospital",
       "videoUrl": "videos/hospital.mp4",
       "position": {
-        "x": 500,
-        "y": 50
+        "x": 820,
+        "y": 27
       },
       "color": "#10b981",
       "options": [
@@ -144,7 +220,7 @@
           "endTime": 15.626306434169276,
           "singleUse": false,
           "style": {
-            "top": 82.33394021260355,
+            "top": 80.12106635793864,
             "left": 75.87859424920129,
             "width": 27.316293929712472,
             "height": 17.7866917249075,
@@ -188,8 +264,8 @@
       "title": "FFCC",
       "videoUrl": "videos/ffcc.mp4",
       "position": {
-        "x": 542,
-        "y": 321
+        "x": 874,
+        "y": 304
       },
       "color": "#ef4444",
       "options": [
@@ -203,9 +279,9 @@
           "style": {
             "top": 80.36092281772436,
             "left": 76.19808306709265,
-            "width": 27.316293929712472,
-            "height": 17.7866917249075,
-            "fontSize": 54,
+            "width": 28.883692048834728,
+            "height": 14.740655034010995,
+            "fontSize": 46,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -224,9 +300,9 @@
           "style": {
             "top": 80.64314709783196,
             "left": 27.316293929712458,
-            "width": 27.316293929712472,
-            "height": 17.7866917249075,
-            "fontSize": 54,
+            "width": 35.466764149148204,
+            "height": 16.679042019126953,
+            "fontSize": 46,
             "color": "#ffffff",
             "backgroundColor": "#3b82f6",
             "bgOpacity": 1,
@@ -264,8 +340,8 @@
           "style": {
             "top": 14.177112514744174,
             "left": 31.629392971246,
-            "width": 61.82108626198084,
-            "height": 24.84229872759745,
+            "width": 60.880647390507484,
+            "height": 13.211976816901705,
             "fontSize": 61,
             "color": "#000000",
             "backgroundColor": "#3b82f6",
@@ -279,68 +355,6 @@
         }
       ],
       "transitionType": "fade"
-    },
-    {
-      "id": "escena-1766158052988",
-      "title": "ImatgeBiblio",
-      "videoUrl": "videos/biblio01.jpg",
-      "position": {
-        "x": 73,
-        "y": 76
-      },
-      "color": "#6b7280",
-      "transitionType": "fade",
-      "options": [
-        {
-          "id": "opt-1766158064651",
-          "label": "Començar",
-          "targetNodeId": "intro",
-          "startTime": 0,
-          "endTime": 10,
-          "singleUse": false,
-          "isHotspot": true,
-          "hoverText": "",
-          "useKeyframes": true,
-          "keyframes": [
-            {
-              "time": 0,
-              "left": 57.028753993610216,
-              "top": 41.16656464640337,
-              "width": 13.738019169329087,
-              "height": 25.94568754080708
-            },
-            {
-              "time": 5.2840000000000025,
-              "left": 72.68370607028753,
-              "top": 52.46363577611048,
-              "width": 18.69009584664538,
-              "height": 49.79505992574432
-            },
-            {
-              "time": 7.089000000000029,
-              "left": 90.25559105431309,
-              "top": 48.90715042046195,
-              "width": 17.571884984025573,
-              "height": 70.08794695503302
-            }
-          ],
-          "condition": null,
-          "effects": [],
-          "style": {
-            "top": 48.90715042046195,
-            "left": 90.25559105431309,
-            "width": 17.571884984025573,
-            "height": 70.08794695503302,
-            "fontSize": 54,
-            "color": "#ffffff",
-            "backgroundColor": "#3b82f6",
-            "bgOpacity": 1,
-            "padding": 10,
-            "borderRadius": 8,
-            "fontFamily": "sans-serif"
-          }
-        }
-      ]
     }
   ],
   "variables": [
