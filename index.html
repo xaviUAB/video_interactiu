@@ -11,6 +11,9 @@
     <!-- Babel per processar JSX al navegador -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+    <!-- YouTube IFrame API (Nativa) -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+
     <style>
         body { background-color: #111827; color: white; overflow: hidden; margin: 0; }
         /* Scrollbars personalitzades */
@@ -74,6 +77,7 @@
 
         // --- Utilitats ---
         const hexToRgba = (hex, alpha = 1) => {
+          if (hex && typeof hex === 'string' && (hex.startsWith('rgba') || hex.startsWith('rgb'))) return hex;
           let r = 0, g = 0, b = 0;
           if (!hex) return `rgba(0,0,0,${alpha})`;
           if (hex.length === 4) {
@@ -86,6 +90,25 @@
             b = parseInt(hex[5] + hex[6], 16);
           }
           return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        };
+
+        const hexToRgbArr = (hex) => {
+            let h = (hex || '#000000').replace('#', '');
+            if (h.length === 3) h = h.split('').map(c => c + c).join('');
+            return [parseInt(h.substr(0, 2), 16), parseInt(h.substr(2, 2), 16), parseInt(h.substr(4, 2), 16)];
+        };
+
+        const interpolateColor = (hex1, hex2, prog) => {
+            const [r1, g1, b1] = hexToRgbArr(hex1);
+            const [r2, g2, b2] = hexToRgbArr(hex2);
+            return `rgb(${Math.round(r1 + (r2 - r1) * prog)}, ${Math.round(g1 + (g2 - g1) * prog)}, ${Math.round(b1 + (b2 - b1) * prog)})`;
+        };
+
+        const interpolateRgba = (hex1, op1, hex2, op2, prog) => {
+            const [r1, g1, b1] = hexToRgbArr(hex1);
+            const [r2, g2, b2] = hexToRgbArr(hex2);
+            const a = op1 + (op2 - op1) * prog;
+            return `rgba(${Math.round(r1 + (r2 - r1) * prog)}, ${Math.round(g1 + (g2 - g1) * prog)}, ${Math.round(b1 + (b2 - b1) * prog)}, ${a})`;
         };
 
         const getContrastYIQ = (hexcolor) => {
@@ -118,7 +141,7 @@
             return /\.(jpg|jpeg|png|gif|webp)$/i.test(url) || url.startsWith('data:image');
         };
 
-        // --- LÒGICA D'INTERPOLACIÓ DE KEYFRAMES (POSICIÓ + MIDA) ---
+        // --- LÒGICA D'INTERPOLACIÓ DE KEYFRAMES (POSICIÓ + MIDA + COLOR) ---
         const getInterpolatedStyle = (opt, currentTime) => {
             if (!opt.useKeyframes || !opt.keyframes || opt.keyframes.length === 0) {
                 return opt.style;
@@ -128,11 +151,19 @@
 
             if (currentTime <= sortedKeys[0].time) {
                 const k = sortedKeys[0];
-                return { ...opt.style, left: k.left, top: k.top, width: getVal(k, 'width'), height: getVal(k, 'height') };
+                return { 
+                    ...opt.style, 
+                    left: k.left, top: k.top, width: getVal(k, 'width'), height: getVal(k, 'height'),
+                    backgroundColor: getVal(k, 'backgroundColor'), color: getVal(k, 'color'), bgOpacity: getVal(k, 'bgOpacity')
+                };
             }
             if (currentTime >= sortedKeys[sortedKeys.length - 1].time) {
                 const last = sortedKeys[sortedKeys.length - 1];
-                return { ...opt.style, left: last.left, top: last.top, width: getVal(last, 'width'), height: getVal(last, 'height') };
+                return { 
+                    ...opt.style, 
+                    left: last.left, top: last.top, width: getVal(last, 'width'), height: getVal(last, 'height'),
+                    backgroundColor: getVal(last, 'backgroundColor'), color: getVal(last, 'color'), bgOpacity: getVal(last, 'bgOpacity')
+                };
             }
             for (let i = 0; i < sortedKeys.length - 1; i++) {
                 const k1 = sortedKeys[i];
@@ -140,23 +171,33 @@
                 if (currentTime >= k1.time && currentTime < k2.time) {
                     const range = k2.time - k1.time;
                     const progress = (currentTime - k1.time) / range;
+                    
                     const l1 = k1.left, l2 = k2.left;
                     const t1 = k1.top, t2 = k2.top;
                     const w1 = getVal(k1, 'width'), w2 = getVal(k2, 'width');
                     const h1 = getVal(k1, 'height'), h2 = getVal(k2, 'height');
 
-                    const currentLeft = l1 + (l2 - l1) * progress;
-                    const currentTop = t1 + (t2 - t1) * progress;
-                    const currentWidth = w1 + (w2 - w1) * progress;
-                    const currentHeight = h1 + (h2 - h1) * progress;
+                    const bg1 = getVal(k1, 'backgroundColor'), bg2 = getVal(k2, 'backgroundColor');
+                    const op1 = getVal(k1, 'bgOpacity') !== undefined ? getVal(k1, 'bgOpacity') : 1;
+                    const op2 = getVal(k2, 'bgOpacity') !== undefined ? getVal(k2, 'bgOpacity') : 1;
+                    const c1 = getVal(k1, 'color'), c2 = getVal(k2, 'color');
 
-                    return { ...opt.style, left: currentLeft, top: currentTop, width: currentWidth, height: currentHeight };
+                    return { 
+                        ...opt.style, 
+                        left: l1 + (l2 - l1) * progress, 
+                        top: t1 + (t2 - t1) * progress, 
+                        width: w1 + (w2 - w1) * progress, 
+                        height: h1 + (h2 - h1) * progress,
+                        backgroundColor: interpolateRgba(bg1, op1, bg2, op2, progress),
+                        color: interpolateColor(c1, c2, progress),
+                        bgOpacity: 1 // Ja fusionat a backgroundColor
+                    };
                 }
             }
             return opt.style;
         };
 
-        // --- LÒGICA D'INTERPOLACIÓ DE LÍNIES (Catmull-Rom Spline & S-Curve) ---
+        // --- LÒGICA D'INTERPOLACIÓ DE LÍNIES (Catmull-Rom Spline) ---
         const generateSmoothPath = (startX, startY, endX, endY, controlPoints) => {
             if (!controlPoints || controlPoints.length === 0) {
                 const distanceX = Math.abs(endX - startX);
@@ -575,6 +616,7 @@
           const historyRef = useRef({ past: [], future: [] });
 
           const videoRef = useRef(null);
+          const ytPlayerRef = useRef(null);
           const videoContainerRef = useRef(null);
           const videoWrapperRef = useRef(null); 
           const timelineTrackRef = useRef(null); 
@@ -583,11 +625,6 @@
           const bulkVideoInputRef = useRef(null); 
           const requestRef = useRef();
           const lastTimeRef = useRef(Date.now()); 
-          
-          // YouTube API specific states
-          const ytPlayerRef = useRef(null);
-          const ytContainerRef = useRef(null);
-          const [ytApiReady, setYtApiReady] = useState(false);
 
           const activeNodeId = mode === 'preview' ? currentNodeId : selectedNodeId;
           const activeNode = nodes.find(n => n.id === activeNodeId); 
@@ -614,100 +651,6 @@
           useEffect(() => {
               if (youtubeId) setMediaAspectRatio(16 / 9);
           }, [youtubeId]);
-
-          // --- CÀRREGA API YOUTUBE ---
-          useEffect(() => {
-              if (!window.YT) {
-                  const tag = document.createElement('script');
-                  tag.src = "https://www.youtube.com/iframe_api";
-                  window.onYouTubeIframeAPIReady = () => setYtApiReady(true);
-                  const firstScriptTag = document.getElementsByTagName('script')[0];
-                  if(firstScriptTag && firstScriptTag.parentNode) {
-                      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-                  } else {
-                      document.head.appendChild(tag);
-                  }
-              } else if (window.YT && window.YT.Player) {
-                  setYtApiReady(true);
-              }
-          }, []);
-
-          // --- INICIALITZACIÓ REPRODUCTOR YOUTUBE ---
-          useEffect(() => {
-              if (youtubeId && ytApiReady && ytContainerRef.current) {
-                  if (ytPlayerRef.current && typeof ytPlayerRef.current.getVideoData === 'function') {
-                      const currentVid = ytPlayerRef.current.getVideoData().video_id;
-                      if (currentVid === youtubeId) return; 
-                  }
-
-                  if (ytPlayerRef.current) {
-                      ytPlayerRef.current.destroy();
-                      ytPlayerRef.current = null;
-                  }
-
-                  ytContainerRef.current.innerHTML = '<div id="yt-player-inner" style="width:100%; height:100%;"></div>';
-
-                  let pVars = {
-                      autoplay: 0,
-                      controls: 0,
-                      disablekb: 1,
-                      modestbranding: 1,
-                      playsinline: 1,
-                      rel: 0,
-                      enablejsapi: 1,
-                      fs: 0
-                  };
-
-                  const currentOrigin = window.location.origin;
-                  if (currentOrigin && currentOrigin !== "null" && currentOrigin !== "file://" && currentOrigin.startsWith("http")) {
-                      pVars.origin = currentOrigin;
-                      pVars.widget_referrer = currentOrigin;
-                  }
-
-                  ytPlayerRef.current = new window.YT.Player('yt-player-inner', {
-                      videoId: youtubeId,
-                      host: 'https://www.youtube-nocookie.com',
-                      playerVars: pVars,
-                      events: {
-                          onReady: (e) => {
-                              setDuration(e.target.getDuration() || 0);
-                              setVideoError(null);
-                              if (mode === 'preview') {
-                                  e.target.playVideo();
-                              }
-                          },
-                          onStateChange: (e) => {
-                              if (e.data === window.YT.PlayerState.PLAYING) setIsPlaying(true);
-                              else if (e.data === window.YT.PlayerState.PAUSED) setIsPlaying(false);
-                              else if (e.data === window.YT.PlayerState.ENDED) {
-                                  setIsPlaying(false);
-                                  handleAutoNavigation();
-                              }
-                          },
-                          onError: (e) => {
-                              console.error("YouTube Error:", e.data);
-                              let errMsg = `Error de YouTube (${e.data}).`;
-                              if (e.data === 150 || e.data === 153) errMsg = "L'autor del vídeo ha bloquejat la seva reproducció fora de YouTube.";
-                              if (e.data === 101) errMsg = "Aquest vídeo no està disponible o és privat.";
-                              setVideoError(errMsg);
-                              setIsPlaying(false);
-                          }
-                      }
-                  });
-              }
-          }, [youtubeId, ytApiReady]);
-
-          // Trigger YouTube Play/Pause on mode change
-          useEffect(() => {
-              if (youtubeId && ytPlayerRef.current && typeof ytPlayerRef.current.playVideo === 'function') {
-                  if (mode === 'preview') {
-                      ytPlayerRef.current.seekTo(0);
-                      ytPlayerRef.current.playVideo();
-                  } else {
-                      ytPlayerRef.current.pauseVideo();
-                  }
-              }
-          }, [mode, youtubeId]);
 
           // --- RESPONSIVE VIDEO SIZE ---
           useEffect(() => {
@@ -797,12 +740,13 @@
              const dt = (now - lastTimeRef.current) / 1000;
              lastTimeRef.current = now;
 
-             if (youtubeId && ytPlayerRef.current && typeof ytPlayerRef.current.getPlayerState === 'function') {
-                 if (ytPlayerRef.current.getPlayerState() === 1) { 
+             if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended && !youtubeId) {
+                 setCurrentTime(videoRef.current.currentTime);
+             } else if (youtubeId && ytPlayerRef.current && ytPlayerRef.current.getPlayerState) {
+                 const state = ytPlayerRef.current.getPlayerState();
+                 if (state === 1) { 
                      setCurrentTime(ytPlayerRef.current.getCurrentTime());
                  }
-             } else if (videoRef.current && !videoRef.current.paused && !videoRef.current.ended && !youtubeId) {
-                 setCurrentTime(videoRef.current.currentTime);
              } else if (isPlaying && isImage) {
                  setCurrentTime(prev => {
                      const next = prev + dt;
@@ -820,10 +764,15 @@
           }, [isPlaying, isImage, mode, activeNode, youtubeId]); 
 
           const togglePlay = useCallback(() => {
-              if (youtubeId && ytPlayerRef.current && typeof ytPlayerRef.current.getPlayerState === 'function') {
+              if (youtubeId && ytPlayerRef.current && ytPlayerRef.current.getPlayerState) {
                   const state = ytPlayerRef.current.getPlayerState();
-                  if (state === 1) ytPlayerRef.current.pauseVideo(); 
-                  else ytPlayerRef.current.playVideo(); 
+                  if (state === 1) {
+                      ytPlayerRef.current.pauseVideo();
+                      setIsPlaying(false);
+                  } else {
+                      ytPlayerRef.current.playVideo();
+                      setIsPlaying(true);
+                  }
                   return;
               }
               if (isImage) {
@@ -868,7 +817,8 @@
                         const newT = Math.max(0, ytPlayerRef.current.getCurrentTime() - 0.1);
                         ytPlayerRef.current.seekTo(newT, true);
                         setCurrentTime(newT);
-                    } else if (isImage) setCurrentTime(t => Math.max(0, t - 0.1));
+                    }
+                    else if (isImage) setCurrentTime(t => Math.max(0, t - 0.1));
                     else if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 0.1);
                 }
                 if (e.code === 'ArrowRight' && !e.shiftKey) {
@@ -877,7 +827,8 @@
                         const newT = Math.min(duration, ytPlayerRef.current.getCurrentTime() + 0.1);
                         ytPlayerRef.current.seekTo(newT, true);
                         setCurrentTime(newT);
-                    } else if (isImage) setCurrentTime(t => Math.min(duration, t + 0.1));
+                    }
+                    else if (isImage) setCurrentTime(t => Math.min(duration, t + 0.1));
                     else if (videoRef.current) videoRef.current.currentTime = Math.min(duration, videoRef.current.currentTime + 0.1);
                 }
 
@@ -918,7 +869,7 @@
             };
             window.addEventListener('keydown', handleKeyDown);
             return () => window.removeEventListener('keydown', handleKeyDown);
-          }, [mode, selectedNodeId, selectedOptionId, activeNode, undo, redo, nodes, variables, startNodeId, duration, isImage, togglePlay]);
+          }, [mode, selectedNodeId, selectedOptionId, activeNode, undo, redo, nodes, variables, startNodeId, duration, isImage, togglePlay, youtubeId]);
 
           useEffect(() => {
             setVideoError(null);
@@ -933,51 +884,17 @@
             }
           }, [activeNodeId, mode]);
 
+          // --- YOUTUBE API LOADER ---
           useEffect(() => {
-            const video = videoRef.current;
-            if (!video || youtubeId) return;
-
-            const handleTimeUpdate = () => setCurrentTime(video.currentTime);
-            const handleLoadedMetadata = () => {
-              if(video.videoWidth && video.videoHeight) {
-                  setMediaAspectRatio(video.videoWidth / video.videoHeight);
+              if (youtubeId && !window.YT) {
+                  const tag = document.createElement('script');
+                  tag.src = "https://www.youtube.com/iframe_api";
+                  const firstScriptTag = document.getElementsByTagName('script')[0];
+                  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
               }
-              if(video.duration && !isNaN(video.duration) && video.duration !== Infinity) {
-                  setDuration(video.duration);
-              }
-              setVideoError(null); 
-              setShowMissingFilesModal(false);
-            };
-            const handleError = (e) => {
-                const error = e.target.error;
-                let msg = "No s'ha pogut carregar el vídeo.";
-                if (error) {
-                    if (error.code === 4) {
-                        msg = "Vídeo no trobat. Enllaça els fitxers locals.";
-                        setShowMissingFilesModal(true);
-                    } else if (error.code === 3) {
-                        msg = "Error de descodificació.";
-                    }
-                }
-                setVideoError(msg);
-                setIsPlaying(false);
-            };
+          }, [youtubeId]);
 
-            video.addEventListener('timeupdate', handleTimeUpdate);
-            video.addEventListener('loadedmetadata', handleLoadedMetadata);
-            video.addEventListener('error', handleError);
-            
-            if (video.readyState >= 1) {
-                handleLoadedMetadata();
-            }
-
-            return () => {
-              video.removeEventListener('timeupdate', handleTimeUpdate);
-              video.removeEventListener('loadedmetadata', handleLoadedMetadata);
-              video.removeEventListener('error', handleError);
-            };
-          }, [activeNodeId, mode, activeNode?.videoUrl, youtubeId]);
-
+          // --- MEDIA LOADING EFFECT ---
           useEffect(() => {
             if (isImage) {
                 const imgDur = activeNode?.duration || 10;
@@ -986,22 +903,88 @@
                 setShowMissingFilesModal(false);
                 setIsPlaying(true); 
                 setCurrentTime(0);
+                if (ytPlayerRef.current && ytPlayerRef.current.destroy) { ytPlayerRef.current.destroy(); ytPlayerRef.current = null; }
+            } else if (youtubeId) {
+                const initYT = () => {
+                    if (ytPlayerRef.current && ytPlayerRef.current.destroy) ytPlayerRef.current.destroy();
+                    ytPlayerRef.current = new window.YT.Player('yt-player-container', {
+                        videoId: youtubeId,
+                        host: 'https://www.youtube-nocookie.com',
+                        playerVars: { 
+                            autoplay: mode === 'preview' ? 1 : 0, 
+                            controls: 0, 
+                            disablekb: 1,
+                            rel: 0,
+                            modestbranding: 1
+                        },
+                        events: {
+                            onReady: (event) => {
+                                setDuration(event.target.getDuration() || 10);
+                                setVideoError(null);
+                                if (mode === 'preview') event.target.playVideo();
+                            },
+                            onStateChange: (event) => {
+                                setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
+                                if (event.data === window.YT.PlayerState.ENDED) handleAutoNavigation();
+                            },
+                            onError: (event) => {
+                                setVideoError(`Error de YouTube (${event.data}). L'autor podria haver bloquejat la incrustació.`);
+                            }
+                        }
+                    });
+                };
+
+                if (window.YT && window.YT.Player) {
+                    initYT();
+                } else {
+                    window.onYouTubeIframeAPIReady = initYT;
+                }
+                setCurrentTime(0);
             } else if (videoRef.current && !youtubeId) {
-                videoRef.current.load();
+                if (ytPlayerRef.current && ytPlayerRef.current.destroy) { ytPlayerRef.current.destroy(); ytPlayerRef.current = null; }
+                
+                const video = videoRef.current;
+                const handleTimeUpdate = () => setCurrentTime(video.currentTime);
+                const handleLoadedMetadata = () => {
+                  if(video.videoWidth && video.videoHeight) setMediaAspectRatio(video.videoWidth / video.videoHeight);
+                  if(video.duration && !isNaN(video.duration) && video.duration !== Infinity) setDuration(video.duration);
+                  setVideoError(null); 
+                  setShowMissingFilesModal(false);
+                };
+                const handleError = (e) => {
+                    const error = e.target.error;
+                    let msg = "No s'ha pogut carregar el vídeo.";
+                    if (error) {
+                        if (error.code === 4) { msg = "Vídeo no trobat. Enllaça els fitxers locals."; setShowMissingFilesModal(true); } 
+                        else if (error.code === 3) msg = "Error de descodificació.";
+                    }
+                    setVideoError(msg); setIsPlaying(false);
+                };
+
+                video.addEventListener('timeupdate', handleTimeUpdate);
+                video.addEventListener('loadedmetadata', handleLoadedMetadata);
+                video.addEventListener('error', handleError);
+                
+                video.load();
+                if (video.readyState >= 1) handleLoadedMetadata();
                 if (mode === 'preview') {
-                    videoRef.current.play().catch(e => console.log("Autoplay blocked", e));
+                    video.play().catch(e => console.log("Autoplay blocked", e));
                     setIsPlaying(true);
                 } else {
                     setIsPlaying(false);
                 }
                 setCurrentTime(0);
+
+                return () => {
+                  video.removeEventListener('timeupdate', handleTimeUpdate);
+                  video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                  video.removeEventListener('error', handleError);
+                };
             }
-          }, [activeNodeId, mode, activeNode?.videoUrl, fileBlobs, youtubeId, isImage]); 
+          }, [activeNodeId, mode, activeNode?.videoUrl, youtubeId, isImage]); 
 
           useEffect(() => {
-              if (isImage) {
-                  setDuration(activeNode?.duration || 10);
-              }
+              if (isImage) setDuration(activeNode?.duration || 10);
           }, [activeNode?.duration, isImage]);
 
           useEffect(() => {
@@ -1091,10 +1074,278 @@
                   const projectData = { version: '2.0', startNodeId, nodes, variables };
                   zip.file("project.json", JSON.stringify(projectData, null, 2));
                   
-                  const viewerContent = `<!DOCTYPE html><html lang="ca"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Visualitzador</title><style>body{background:#000;margin:0;overflow:hidden;font-family:sans-serif}#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;background:black}video,iframe,img{width:100%;height:100%;object-fit:contain;border:none;display:block}#media-wrapper{position:relative;box-shadow:0 0 20px rgba(0,0,0,0.5);width:100%;height:100%}.interactive-btn{position:absolute;transform:translate(-50%,-50%);border:none;outline:none;transition:opacity 0.5s;z-index:10;display:none;opacity:0;white-space:nowrap;/* Eliminada l'ombra per defecte per evitar requadres en textos transparents *//* box-shadow:0 2px 4px rgba(0,0,0,0.3); */align-items:center;justify-content:center}.interactive-btn.clickable{cursor:pointer}.interactive-btn.clickable:hover{transform:translate(-50%,-50%)scale(1.05);z-index:20}.interactive-btn.visible{display:flex;opacity:1}.interactive-btn.hidden-btn{display:none!important}.spinner{position:absolute;z-index:50;border:4px solid rgba(255,255,255,0.1);width:36px;height:36px;border-radius:50%;border-left-color:#3b82f6;animation:spin 1s ease-in-out infinite}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}#error-message{position:absolute;z-index:200;display:none;text-align:center;color:#f87171;background:rgba(20,20,20,0.95);padding:2rem;border-radius:8px;border:1px solid #7f1d1d;max-width:80%}.fade-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background-color:black;opacity:0;pointer-events:none;transition:opacity 0.5s ease;z-index:100}.fade-overlay.active{opacity:1;pointer-events:auto}#start-overlay{position:absolute;z-index:150;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;flex-direction:column;cursor:pointer}.play-icon-large{width:80px;height:80px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;transition:transform 0.2s}#start-overlay:hover .play-icon-large{transform:scale(1.1);background:rgba(255,255,255,0.4)}#manual-load-overlay{position:absolute;z-index:250;top:0;left:0;width:100%;height:100%;background:#111827;display:none;align-items:center;justify-content:center;flex-direction:column;padding:20px}#custom-tooltip{position:absolute;background:rgba(0,0,0,0.85);color:white;padding:6px 12px;border-radius:4px;font-size:14px;pointer-events:none;z-index:300;display:none;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-12px;box-shadow:0 2px 4px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.2)}#custom-tooltip::after{content:'';position:absolute;top:100%;left:50%;margin-left:-5px;border-width:5px;border-style:solid;border-color:rgba(0,0,0,0.85) transparent transparent transparent}#player-container{position:relative;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background-color:#000}.credits-footer{position:absolute;bottom:12px;left:16px;z-index:200;pointer-events:none;color:rgba(255,255,255,0.4);font-size:11px;line-height:1.3;text-shadow:0 1px 3px rgba(0,0,0,0.8);font-family:sans-serif;}</style></head><body><div id="player-container"><div id="fade-overlay" class="fade-overlay"></div><div id="loading" class="spinner"></div><div id="custom-tooltip"></div><div id="start-overlay" onclick="startPlaybackManual()"><div class="play-icon-large"><svg width="40" height="40" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></div><p class="mt-4 text-lg font-semibold">Clica per començar</p></div><div id="manual-load-overlay"><div class="text-center max-w-lg"><svg class="w-16 h-16 text-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg><h2 class="text-2xl font-bold text-white mb-2">Mode Local Detectat</h2><p class="text-gray-400 mb-6">Si us plau, selecciona el fitxer <strong>project.json</strong> manualment per continuar.</p><label class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-6 rounded cursor-pointer transition-colors inline-flex items-center gap-2">Seleccionar project.json<input type="file" id="json-input" accept=".json" class="hidden" onchange="loadLocalJSON(this)"></label></div></div><div id="error-message"><h2 class="text-xl font-bold mb-2">Error</h2><p id="error-text"></p></div><div id="media-wrapper"></div><div class="credits-footer"><strong>Una creació de Xavier Ribes</strong><br><span style="font-size:9px">Departament de Comunicació Audiovisual i Publicitat</span></div></div><script>`;
-              
-              zip.file("index.html", viewerContent);
-              zip.folder("videos");
+                  const viewerHTML = `<!DOCTYPE html><html lang="ca"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>Visualitzador</title><style>body{background:#000;margin:0;overflow:hidden;font-family:sans-serif}#container{position:relative;width:100vw;height:100vh;display:flex;justify-content:center;background:black;flex-direction:column;}video,iframe,img{width:100%;height:100%;object-fit:contain;border:none;display:block}#media-wrapper{position:relative;box-shadow:0 0 20px rgba(0,0,0,0.5);width:100%;height:100%;flex:1;}.interactive-btn{position:absolute;transform:translate(-50%,-50%);border:none;outline:none;transition:opacity 0.5s;z-index:10;display:none;opacity:0;white-space:nowrap;align-items:center;justify-content:center}.interactive-btn.clickable{cursor:pointer}.interactive-btn.clickable:hover{transform:translate(-50%,-50%)scale(1.05);z-index:20}.interactive-btn.visible{display:flex;opacity:1}.interactive-btn.hidden-btn{display:none!important}.spinner{position:absolute;z-index:50;border:4px solid rgba(255,255,255,0.1);width:36px;height:36px;border-radius:50%;border-left-color:#3b82f6;animation:spin 1s ease-in-out infinite}@keyframes spin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}#error-message{position:absolute;z-index:200;display:none;text-align:center;color:#f87171;background:rgba(20,20,20,0.95);padding:2rem;border-radius:8px;border:1px solid #7f1d1d;max-width:80%;top:50%;left:50%;transform:translate(-50%,-50%);}.fade-overlay{position:absolute;top:0;left:0;width:100%;height:100%;background-color:black;opacity:0;pointer-events:none;transition:opacity 0.5s ease;z-index:100}.fade-overlay.active{opacity:1;pointer-events:auto}#start-overlay{position:absolute;z-index:150;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;flex-direction:column;cursor:pointer}.play-icon-large{width:80px;height:80px;background:rgba(255,255,255,0.2);border-radius:50%;display:flex;align-items:center;justify-content:center;border:2px solid white;transition:transform 0.2s}#start-overlay:hover .play-icon-large{transform:scale(1.1);background:rgba(255,255,255,0.4)}#manual-load-overlay{position:absolute;z-index:250;top:0;left:0;width:100%;height:100%;background:#111827;display:none;align-items:center;justify-content:center;flex-direction:column;padding:20px}#custom-tooltip{position:absolute;background:rgba(0,0,0,0.85);color:white;padding:6px 12px;border-radius:4px;font-size:14px;pointer-events:none;z-index:300;display:none;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-12px;box-shadow:0 2px 4px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.2)}#custom-tooltip::after{content:'';position:absolute;top:100%;left:50%;margin-left:-5px;border-width:5px;border-style:solid;border-color:rgba(0,0,0,0.85) transparent transparent transparent}footer{height:40px;background:#1f2937;border-top:1px solid #374151;display:flex;align-items:center;justify-content:center;flex-direction:column;color:#6b7280;font-size:10px;text-align:center;}</style></head><body><div id="container"><div id="player-container" style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;"><div id="fade-overlay" class="fade-overlay"></div><div id="loading" class="spinner"></div><div id="custom-tooltip"></div><div id="start-overlay" onclick="startPlaybackManual()"><div class="play-icon-large"><svg width="40" height="40" viewBox="0 0 24 24" fill="white" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></div><p class="mt-4 text-lg font-semibold" style="color:white;font-family:sans-serif;">Clica per començar</p></div><div id="manual-load-overlay"><div style="text-align:center;max-width:32rem;"><h2 style="font-size:1.5rem;font-weight:bold;color:white;margin-bottom:0.5rem;font-family:sans-serif;">Mode Local Detectat</h2><p style="color:#9ca3af;margin-bottom:1.5rem;font-family:sans-serif;">Si us plau, selecciona el fitxer <strong>project.json</strong> manualment per continuar.</p><label style="background:#2563eb;color:white;font-weight:bold;padding:0.75rem 1.5rem;border-radius:0.25rem;cursor:pointer;font-family:sans-serif;">Seleccionar project.json<input type="file" id="json-input" accept=".json" style="display:none;" onchange="loadLocalJSON(this)"></label></div></div><div id="error-message"><h2 style="font-size:1.25rem;font-weight:bold;margin-bottom:0.5rem;font-family:sans-serif;">Error</h2><p id="error-text" style="font-family:sans-serif;"></p></div><div id="media-wrapper"><div id="yt-player-container"></div></div></div><footer><div>Una creació de Xavier Ribes</div><div>Departament de Comunicació Audiovisual i Publicitat</div></footer></div><script src="https://www.youtube.com/iframe_api"><\/script><script>`;
+                  
+                  const viewerJS = `
+                  const JSON_FILE = 'project.json'; 
+                  let projectData = null; let currentNode = null; let clickedOptions = new Set(); let runtimeVariables = {};     
+                  let videoElement = null; let ytPlayer = null; let imageTimer = null; let currentImageTime = 0; let animationFrameId = null; let currentAspectRatio = 16/9;
+                  const container = document.getElementById('player-container'); const mediaWrapper = document.getElementById('media-wrapper');
+                  const loading = document.getElementById('loading'); const errorDiv = document.getElementById('error-message'); const errorText = document.getElementById('error-text');
+                  const fadeOverlay = document.getElementById('fade-overlay'); const startOverlay = document.getElementById('start-overlay'); const manualLoadOverlay = document.getElementById('manual-load-overlay'); const tooltip = document.getElementById('custom-tooltip');
+                  function hexToRgbArr(hex) {
+                      let h = (hex||'#000').replace('#', '');
+                      if(h.length === 3) h = h.split('').map(c=>c+c).join('');
+                      return [parseInt(h.substr(0,2),16), parseInt(h.substr(2,2),16), parseInt(h.substr(4,2),16)];
+                  }
+                  function interpolateColor(hex1, hex2, prog) {
+                      const [r1, g1, b1] = hexToRgbArr(hex1); const [r2, g2, b2] = hexToRgbArr(hex2);
+                      return 'rgb(' + Math.round(r1 + (r2 - r1) * prog) + ',' + Math.round(g1 + (g2 - g1) * prog) + ',' + Math.round(b1 + (b2 - b1) * prog) + ')';
+                  }
+                  function interpolateRgba(hex1, op1, hex2, op2, prog) {
+                      const [r1, g1, b1] = hexToRgbArr(hex1); const [r2, g2, b2] = hexToRgbArr(hex2);
+                      return 'rgba(' + Math.round(r1 + (r2 - r1) * prog) + ',' + Math.round(g1 + (g2 - g1) * prog) + ',' + Math.round(b1 + (b2 - b1) * prog) + ',' + (op1 + (op2 - op1) * prog) + ')';
+                  }
+                  function hexToRgba(hex, alpha = 1) {
+                      if (hex && typeof hex === 'string' && (hex.startsWith('rgba') || hex.startsWith('rgb'))) return hex;
+                      let r = 0, g = 0, b = 0;
+                      if (!hex) return 'rgba(0,0,0,' + alpha + ')';
+                      if (hex.length === 4) { r = parseInt(hex[1] + hex[1], 16); g = parseInt(hex[2] + hex[2], 16); b = parseInt(hex[3] + hex[3], 16); } 
+                      else if (hex.length === 7) { r = parseInt(hex[1] + hex[2], 16); g = parseInt(hex[3] + hex[4], 16); b = parseInt(hex[5] + hex[6], 16); }
+                      return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
+                  }
+                  function getYoutubeId(url) {
+                      if (!url) return null;
+                      const match = url.match(/^.*(youtu.be\\/|v\\/|u\\/\\w\\/|embed\\/|watch\\?v=|&v=)([^#&?]*).*/);
+                      return (match && match[2].length === 11) ? match[2] : null;
+                  }
+                  function isImageFile(url) { return !url ? false : /\\.(jpg|jpeg|png|gif|webp)$/i.test(url) || url.startsWith('data:image'); }
+                  function showError(msg) { loading.style.display = 'none'; startOverlay.style.display = 'none'; manualLoadOverlay.style.display = 'none'; errorDiv.style.display = 'block'; errorText.innerHTML = msg; }
+                  function resizeWrapper() {
+                      if (!mediaWrapper || !container) return;
+                      const cw = container.clientWidth;
+                      const ch = container.clientHeight;
+                      if (cw === 0 || ch === 0) return;
+                      const containerRatio = cw / ch;
+                      let finalW, finalH;
+                      if (containerRatio > currentAspectRatio) { finalH = ch; finalW = finalH * currentAspectRatio; } 
+                      else { finalW = cw; finalH = finalW / currentAspectRatio; }
+                      mediaWrapper.style.width = finalW + 'px'; mediaWrapper.style.height = finalH + 'px';
+                      document.querySelectorAll('.interactive-btn').forEach(btn => {
+                          const baseSize = parseFloat(btn.dataset.baseFontSize || 16);
+                          btn.style.fontSize = ((baseSize / 900) * finalH) + 'px';
+                      });
+                  }
+                  window.addEventListener('resize', resizeWrapper);
+                  function initVariables() { if (projectData.variables) projectData.variables.forEach(v => { runtimeVariables[v.name] = v.value; }); }
+                  function checkCondition(condition) {
+                      if (!condition || !condition.variable) return true;
+                      const currentVal = runtimeVariables[condition.variable] !== undefined ? runtimeVariables[condition.variable] : 0;
+                      const targetVal = parseFloat(condition.value);
+                      switch (condition.operator) {
+                          case 'eq': return currentVal == targetVal; case 'neq': return currentVal != targetVal;
+                          case 'gt': return currentVal > targetVal; case 'lt': return currentVal < targetVal; default: return true;
+                      }
+                  }
+                  function applyEffects(effects) {
+                      if (!effects) return;
+                      effects.forEach(eff => {
+                          if (!eff.variable) return;
+                          const currentVal = runtimeVariables[eff.variable] || 0;
+                          const effectVal = parseFloat(eff.value);
+                          if (eff.operator === 'set') runtimeVariables[eff.variable] = effectVal;
+                          if (eff.operator === 'add') runtimeVariables[eff.variable] = currentVal + effectVal;
+                          if (eff.operator === 'sub') runtimeVariables[eff.variable] = currentVal - effectVal;
+                      });
+                  }
+                  function showTooltip(text, btn) { tooltip.textContent = text; tooltip.style.display = 'block'; mediaWrapper.appendChild(tooltip); tooltip.style.top = btn.style.top; tooltip.style.left = btn.style.left; }
+                  function hideTooltip() { tooltip.style.display = 'none'; }
+                  window.loadLocalJSON = function(input) {
+                      const file = input.files[0]; if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = function(e) { try { projectData = JSON.parse(e.target.result); manualLoadOverlay.style.display = 'none'; startProject(); } catch (err) { alert("Error: " + err.message); } };
+                      reader.readAsText(file);
+                  };
+                  async function init() {
+                      try {
+                          if (window.location.protocol === 'file:') { loading.style.display = 'none'; manualLoadOverlay.style.display = 'flex'; return; }
+                          const response = await fetch(JSON_FILE);
+                          if (!response.ok) throw new Error('HTTP ' + response.status);
+                          projectData = await response.json(); startProject();
+                      } catch (err) { loading.style.display = 'none'; manualLoadOverlay.style.display = 'flex'; }
+                  }
+                  function startProject() {
+                      if (!projectData || !projectData.nodes || projectData.nodes.length === 0) { showError("JSON invàlid."); return; }
+                      initVariables();
+                      const startId = projectData.startNodeId || projectData.nodes[0].id;
+                      const startNode = projectData.nodes.find(n => n.id === startId);
+                      if (startNode && startNode.transitionType === 'fade') fadeOverlay.classList.add('active');
+                      loadNode(startId); loop();
+                  }
+                  function loadNode(nodeId) {
+                      const node = projectData.nodes.find(n => n.id === nodeId);
+                      if (!node) { showError("Node no trobat: " + nodeId); return; }
+                      currentNode = node; renderScene(node);
+                  }
+                  function renderScene(node) {
+                      // Neteja contenidor, preservant l'ancoratge de YT
+                      mediaWrapper.innerHTML = '<div id="yt-player-container"></div>'; 
+                      loading.style.display = 'block'; videoElement = null;
+                      if (ytPlayer && ytPlayer.destroy) { ytPlayer.destroy(); ytPlayer = null; }
+                      if (imageTimer) clearInterval(imageTimer); currentImageTime = 0; hideTooltip();
+                      
+                      const youtubeId = getYoutubeId(node.videoUrl);
+                      let src = node.videoUrl;
+                      if (!src.match(/^(http|https|blob):/) && !src.startsWith('videos/')) src = 'videos/' + src;
+                      
+                      const onContentReady = () => {
+                          loading.style.display = 'none'; startOverlay.style.display = 'none'; resizeWrapper(); 
+                          if (node.transitionType === 'fade') setTimeout(() => { fadeOverlay.classList.remove('active'); }, 100);
+                          else fadeOverlay.classList.remove('active');
+                      };
+                      const handleAutoNavigation = () => {
+                          if (node.defaultNextNodeId) {
+                              const targetNode = projectData.nodes.find(n => n.id === node.defaultNextNodeId);
+                              if (targetNode) {
+                                  if (targetNode.transitionType === 'fade') { fadeOverlay.classList.add('active'); setTimeout(() => { loadNode(node.defaultNextNodeId); }, 500); }
+                                  else loadNode(node.defaultNextNodeId);
+                              }
+                          }
+                      };
+                      
+                      if (youtubeId) {
+                          currentAspectRatio = 16/9;
+                          const initYT = () => {
+                              ytPlayer = new window.YT.Player('yt-player-container', {
+                                  videoId: youtubeId,
+                                  host: 'https://www.youtube-nocookie.com',
+                                  playerVars: { autoplay: 1, controls: 0, disablekb: 1, rel: 0, modestbranding: 1 },
+                                  events: {
+                                      onReady: (event) => { onContentReady(); event.target.playVideo(); renderButtons(node, true); },
+                                      onStateChange: (event) => { if (event.data === window.YT.PlayerState.ENDED) handleAutoNavigation(); },
+                                      onError: () => { showError("Error de YouTube. L'autor podria haver bloquejat la incrustació."); }
+                                  }
+                              });
+                          };
+                          if (window.YT && window.YT.Player) initYT();
+                          else window.onYouTubeIframeAPIReady = initYT;
+                          resizeWrapper(); 
+                      } else if (isImageFile(src)) {
+                          const img = document.createElement('img'); img.src = src;
+                          const duration = node.duration || 10; 
+                          img.onload = () => {
+                              if (img.naturalWidth && img.naturalHeight) currentAspectRatio = img.naturalWidth / img.naturalHeight;
+                              onContentReady();
+                              imageTimer = setInterval(() => {
+                                  currentImageTime += 0.05; checkButtonVisibility(currentImageTime);
+                                  if (currentImageTime >= duration) { clearInterval(imageTimer); handleAutoNavigation(); }
+                              }, 50);
+                          };
+                          img.onerror = () => { loading.style.display = 'none'; showError('Imatge no trobada: <strong>' + src + '</strong>'); };
+                          mediaWrapper.appendChild(img); renderButtons(node, false);
+                      } else {
+                          const video = document.createElement('video'); video.src = src; video.playsInline = true; video.muted = false; video.autoplay = true; video.controls = false; 
+                          video.onloadedmetadata = () => { if (video.videoWidth && video.videoHeight) { currentAspectRatio = video.videoWidth / video.videoHeight; resizeWrapper(); } };
+                          video.oncanplay = onContentReady; video.onended = () => { handleAutoNavigation(); };
+                          video.onerror = (e) => { loading.style.display = 'none'; if (video.error && video.error.code === 4) showError('Vídeo no trobat: <strong>' + src + '</strong>.'); else showError("Error carregant el vídeo."); };
+                          mediaWrapper.appendChild(video); videoElement = video; renderButtons(node, false);
+                          video.play().catch(e => { loading.style.display = 'none'; startOverlay.style.display = 'flex'; });
+                      }
+                  }
+                  window.startPlaybackManual = function() { 
+                      if (videoElement) { videoElement.muted = false; videoElement.play().then(() => { startOverlay.style.display = 'none'; }).catch(e => showError(e.message)); } 
+                      else if (ytPlayer && ytPlayer.playVideo) { ytPlayer.playVideo(); startOverlay.style.display = 'none'; }
+                  };
+                  function renderButtons(node, isAlwaysVisible) {
+                      const buttonsContainer = document.createElement('div');
+                      buttonsContainer.id = 'buttons-layer'; buttonsContainer.style.position = 'absolute'; buttonsContainer.style.top = '0'; buttonsContainer.style.left = '0'; buttonsContainer.style.width = '100%'; buttonsContainer.style.height = '100%'; buttonsContainer.style.pointerEvents = 'none'; 
+                      node.options.forEach(opt => {
+                          if (opt.singleUse && clickedOptions.has(opt.id)) return;
+                          if (opt.condition && opt.condition.variable) { if (!checkCondition(opt.condition)) return; }
+                          const btn = document.createElement('button'); btn.className = 'interactive-btn'; btn.dataset.id = opt.id; btn.dataset.startTime = opt.startTime; btn.dataset.endTime = opt.endTime || 99999;
+                          const s = opt.style || {}; const bgColor = hexToRgba(s.backgroundColor, s.bgOpacity !== undefined ? s.bgOpacity : 1);
+                          btn.dataset.baseFontSize = s.fontSize || 16; btn.style.color = s.color; btn.style.backgroundColor = bgColor; btn.style.padding = s.padding + 'px'; btn.style.borderRadius = s.borderRadius + 'px'; btn.style.fontFamily = s.fontFamily;
+                          if (s.fontWeight) btn.style.fontWeight = s.fontWeight; if (s.fontStyle) btn.style.fontStyle = s.fontStyle;
+                          if (opt.isHotspot) { btn.style.opacity = '0'; btn.style.backgroundColor = 'transparent'; btn.style.color = 'transparent'; if (opt.hoverText) { btn.onmouseenter = () => showTooltip(opt.hoverText, btn); btn.onmouseleave = hideTooltip; } } else { btn.textContent = opt.label; }
+                          const isClickable = !!(opt.targetNodeId || opt.url || (opt.effects && opt.effects.length > 0));
+                          if (isClickable) { btn.classList.add('clickable'); btn.style.pointerEvents = 'auto'; btn.onclick = () => handleOptionClick(opt); } else { btn.style.pointerEvents = 'auto'; btn.style.cursor = 'default'; }
+                          const formatPos = (val) => typeof val === 'string' && val.endsWith('%') ? val : val + '%';
+                          btn.style.top = formatPos(s.top); btn.style.left = formatPos(s.left);
+                          btn.style.width = typeof s.width === 'number' ? s.width + 'px' : s.width; if(String(s.width).indexOf('%') === -1 && String(s.width) !== 'auto') btn.style.width = s.width + '%'; 
+                          btn.style.height = typeof s.height === 'number' ? s.height + 'px' : s.height; if(String(s.height).indexOf('%') === -1 && String(s.height) !== 'auto') btn.style.height = s.height + '%';
+                          if (isAlwaysVisible) { btn.classList.add('visible'); if (opt.isHotspot) btn.style.opacity = '0'; }
+                          buttonsContainer.appendChild(btn);
+                      });
+                      mediaWrapper.appendChild(buttonsContainer); updateButtonsFontSize(mediaWrapper.clientHeight);
+                  }
+                  function updateKeyframes(currentTime) {
+                      if (!currentNode) return;
+                      document.querySelectorAll('.interactive-btn').forEach(btn => {
+                          const optId = btn.dataset.id; const opt = currentNode.options.find(o => o.id === optId);
+                          if (opt && opt.useKeyframes && opt.keyframes && opt.keyframes.length > 0) {
+                              const sortedKeys = [...opt.keyframes].sort((a, b) => a.time - b.time); let newStyle = {}; const getVal = (k, p) => k[p] !== undefined ? k[p] : opt.style[p];
+                              if (currentTime <= sortedKeys[0].time) { 
+                                  const k = sortedKeys[0]; newStyle = { left: k.left, top: k.top, width: getVal(k, 'width'), height: getVal(k, 'height'), bg: getVal(k, 'backgroundColor'), color: getVal(k, 'color'), op: getVal(k, 'bgOpacity') }; 
+                              } 
+                              else if (currentTime >= sortedKeys[sortedKeys.length - 1].time) { 
+                                  const last = sortedKeys[sortedKeys.length - 1]; newStyle = { left: last.left, top: last.top, width: getVal(last, 'width'), height: getVal(last, 'height'), bg: getVal(last, 'backgroundColor'), color: getVal(last, 'color'), op: getVal(last, 'bgOpacity') }; 
+                              } 
+                              else {
+                                  for (let i = 0; i < sortedKeys.length - 1; i++) {
+                                      const k1 = sortedKeys[i]; const k2 = sortedKeys[i + 1];
+                                      if (currentTime >= k1.time && currentTime < k2.time) {
+                                          const progress = (currentTime - k1.time) / (k2.time - k1.time);
+                                          newStyle = { 
+                                              left: k1.left + (k2.left - k1.left) * progress, 
+                                              top: k1.top + (k2.top - k1.top) * progress, 
+                                              width: getVal(k1, 'width') + (getVal(k2, 'width') - getVal(k1, 'width')) * progress, 
+                                              height: getVal(k1, 'height') + (getVal(k2, 'height') - getVal(k1, 'height')) * progress,
+                                              interBg: interpolateRgba(getVal(k1, 'backgroundColor'), getVal(k1, 'bgOpacity') !== undefined ? getVal(k1, 'bgOpacity') : 1, getVal(k2, 'backgroundColor'), getVal(k2, 'bgOpacity') !== undefined ? getVal(k2, 'bgOpacity') : 1, progress),
+                                              interColor: interpolateColor(getVal(k1, 'color'), getVal(k2, 'color'), progress)
+                                          };
+                                          break;
+                                      }
+                                  }
+                              }
+                              if (newStyle.left !== undefined) { 
+                                  btn.style.left = newStyle.left + '%'; btn.style.top = newStyle.top + '%'; 
+                                  if (newStyle.width) btn.style.width = newStyle.width + '%'; 
+                                  if (newStyle.height) btn.style.height = newStyle.height + '%'; 
+                                  
+                                  if (newStyle.interBg) btn.style.backgroundColor = newStyle.interBg;
+                                  else if (newStyle.bg !== undefined) btn.style.backgroundColor = hexToRgba(newStyle.bg, newStyle.op !== undefined ? newStyle.op : 1);
+                                  
+                                  if (newStyle.interColor) btn.style.color = newStyle.interColor;
+                                  else if (newStyle.color !== undefined) btn.style.color = newStyle.color;
+                              }
+                          }
+                      });
+                  }
+                  function checkButtonVisibility(currentTime) {
+                      updateKeyframes(currentTime);
+                      document.querySelectorAll('.interactive-btn').forEach(btn => {
+                          const start = parseFloat(btn.dataset.startTime); const end = parseFloat(btn.dataset.endTime);
+                          if (currentTime >= start && currentTime <= end) { btn.classList.add('visible'); btn.classList.remove('hidden-btn'); const opt = currentNode.options.find(o => o.id === btn.dataset.id); if (opt && opt.isHotspot) btn.style.opacity = '0'; } 
+                          else { btn.classList.remove('visible'); btn.classList.add('hidden-btn'); }
+                      });
+                  }
+                  function handleOptionClick(opt) {
+                      if (opt.effects) applyEffects(opt.effects);
+                      if (opt.singleUse) clickedOptions.add(opt.id);
+                      if (opt.url) { window.open(opt.url, '_blank'); return; }
+                      if (!opt.targetNodeId) return;
+                      const targetNode = projectData.nodes.find(n => n.id === opt.targetNodeId);
+                      if (targetNode && targetNode.transitionType === 'fade') { fadeOverlay.classList.add('active'); setTimeout(() => { loadNode(opt.targetNodeId); }, 500); } 
+                      else { loadNode(opt.targetNodeId); }
+                  }
+                  function loop() {
+                      if (currentNode && !document.hidden) {
+                          let time = 0;
+                          if (videoElement && !videoElement.paused) time = videoElement.currentTime;
+                          else if (ytPlayer && ytPlayer.getPlayerState && ytPlayer.getPlayerState() === 1) time = ytPlayer.getCurrentTime();
+                          else if (imageTimer) time = currentImageTime;
+                          if (videoElement || imageTimer || ytPlayer) checkButtonVisibility(time);
+                      }
+                      animationFrameId = requestAnimationFrame(loop);
+                  }
+                  window.onload = init;
+                  `;
+                  
+                  const endHTML = '<' + '/script></body></html>';
+                  const fullViewer = viewerHTML + viewerJS + endHTML;
+
+                  zip.file("index.html", fullViewer);
+                  zip.folder("videos");
                   zip.file("LLEGEIX-ME.txt", "Posa els teus fitxers de vídeo a la carpeta 'videos'.");
                   const content = await zip.generateAsync({ type: "blob" });
                   const url = URL.createObjectURL(content);
@@ -1177,7 +1428,7 @@
               targetNodeId: nodes.length > 0 ? nodes[0].id : activeNode.id,
               url: '',
               startTime: 0,
-              endTime: duration > 0 ? duration : 10, 
+              endTime: duration > 0 ? parseFloat(duration.toFixed(2)) : 10, 
               singleUse: false,
               isHotspot: false, 
               hoverText: '',    
@@ -1222,7 +1473,18 @@
               const top = coords ? coords.top : opt.style.top;
               const width = coords ? coords.width : opt.style.width; 
               const height = coords ? coords.height : opt.style.height; 
-              const newKeyframe = { time: currentTime, left, top, width, height };
+              const backgroundColor = opt.style.backgroundColor;
+              const color = opt.style.color;
+              const bgOpacity = opt.style.bgOpacity !== undefined ? opt.style.bgOpacity : 1;
+              
+              const newKeyframe = { 
+                  time: parseFloat(currentTime.toFixed(2)), 
+                  left: parseFloat(Number(left).toFixed(2)), 
+                  top: parseFloat(Number(top).toFixed(2)), 
+                  width: parseFloat(Number(width).toFixed(2)), 
+                  height: parseFloat(Number(height).toFixed(2)),
+                  backgroundColor, color, bgOpacity
+              };
               const existing = opt.keyframes || [];
               const filtered = existing.filter(k => Math.abs(k.time - currentTime) > 0.1);
               updateOption(opt.id, 'keyframes', [...filtered, newKeyframe].sort((a,b) => a.time - b.time));
@@ -1238,11 +1500,8 @@
           
           const seekToKeyframe = (time) => {
               setCurrentTime(time);
-              if (youtubeId && ytPlayerRef.current && typeof ytPlayerRef.current.seekTo === 'function') {
-                  ytPlayerRef.current.seekTo(time, true);
-              } else if (videoRef.current) {
-                  videoRef.current.currentTime = time;
-              }
+              if (videoRef.current) videoRef.current.currentTime = time;
+              if (ytPlayerRef.current && ytPlayerRef.current.seekTo) ytPlayerRef.current.seekTo(time, true);
           };
 
           const handleOptionInteraction = (opt) => {
@@ -1386,7 +1645,7 @@
           }, [dragState, handleGlobalMouseMove, handleGlobalMouseUp]);
 
           const handleTimelineClick = (e) => {
-            if (dragState.isDragging || youtubeId) return;
+            if (dragState.isDragging) return;
             const rect = timelineTrackRef.current?.getBoundingClientRect();
             if (!rect) return;
             
@@ -1394,12 +1653,15 @@
             const safeDuration = (duration > 0) ? duration : 10;
             const newTime = (clickX / rect.width) * safeDuration;
             
-            if (isFinite(newTime)) { setCurrentTime(newTime); if (videoRef.current) videoRef.current.currentTime = newTime; }
+            if (isFinite(newTime)) { 
+                setCurrentTime(newTime); 
+                if (videoRef.current) videoRef.current.currentTime = newTime; 
+                if (youtubeId && ytPlayerRef.current && ytPlayerRef.current.seekTo) ytPlayerRef.current.seekTo(newTime, true);
+            }
           };
 
           return (
             <div className="flex flex-col h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden relative">
-              {/* HEADER */}
               <header className="h-14 bg-gray-800 border-b border-gray-700 flex items-center justify-between px-4 shrink-0 z-20">
                 <div className="flex flex-col">
                     <div className="flex items-center gap-2"><MonitorPlay className="text-blue-500 w-6 h-6" /><h1 className="font-bold text-lg">Editor de Video Interactiu</h1></div>
@@ -1483,7 +1745,7 @@
                             {!activeNode ? (
                                 <div className="text-gray-500 text-center flex flex-col items-center justify-center h-full"><Film size={64} className="mb-4 opacity-20"/><p>Selecciona una escena</p></div>
                             ) : youtubeId ? (
-                                <div ref={ytContainerRef} className="w-full h-full pointer-events-none" style={{ backgroundColor: 'black' }}></div>
+                                <div id="yt-player-container" className="w-full h-full pointer-events-none"></div>
                             ) : isImage ? (
                                  <img 
                                     src={fileBlobs[activeNode.videoUrl] || getVideoSrc(activeNode.videoUrl)} 
@@ -1509,12 +1771,12 @@
                             <div className={`absolute inset-0 bg-black pointer-events-none transition-opacity duration-500 z-[100] ${isTransitioning ? 'opacity-100' : 'opacity-0'}`}></div>
 
                             {videoError && activeNode && !showMissingFilesModal && (
-                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 z-50 text-center p-6"><AlertCircle size={48} className="mb-2"/><p>{videoError}</p></div>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-red-400 z-50"><AlertCircle size={48} className="mb-2"/><p className="text-center max-w-sm">{videoError}</p></div>
                             )}
 
                             <div className="absolute inset-0 pointer-events-none">
                               {activeNode && activeNode.options.map(opt => {
-                                const isVisible = youtubeId ? true : (currentTime >= opt.startTime && currentTime <= (opt.endTime || duration));
+                                const isVisible = (currentTime >= opt.startTime && currentTime <= (opt.endTime || duration));
                                 let conditionsMet = true;
                                 if (mode === 'preview' && opt.condition && opt.condition.variable) {
                                     conditionsMet = checkCondition(opt.condition);
@@ -1674,7 +1936,7 @@
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Vídeo / Imatge</label>
+                                    <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Vídeo / Imatge / YouTube</label>
                                     <input type="text" value={activeNode.videoUrl} onChange={(e) => updateNode(activeNode.id, 'videoUrl', e.target.value)} className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-xs mb-2 font-mono"/>
                                     <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="video/*,image/*" className="hidden" />
                                     <button onClick={() => fileInputRef.current?.click()} className="w-full bg-gray-700 hover:bg-gray-600 text-xs py-1 rounded flex items-center justify-center gap-2 border border-gray-600"><Upload size={12} /> Pujar Local</button>
@@ -1761,22 +2023,22 @@
                                                 <summary className="text-xs text-blue-400 cursor-pointer mb-1">Visual i Temps</summary>
                                                 <div className="pl-2 border-l border-gray-600 space-y-2 mt-1">
                                                     <div className="flex gap-2">
-                                                        <div className="flex-1"><label className="text-[10px] text-gray-500">Inici (s)</label><input type="number" step="0.01" value={opt.startTime} onChange={(e) => updateOption(opt.id, 'startTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
-                                                        <div className="flex-1"><label className="text-[10px] text-gray-500">Fi (s)</label><input type="number" step="0.01" value={opt.endTime || duration} onChange={(e) => updateOption(opt.id, 'endTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                                        <div className="flex-1"><label className="text-[10px] text-gray-500">Inici (s)</label><input type="number" step="0.01" value={Number(opt.startTime).toFixed(2)} onChange={(e) => updateOption(opt.id, 'startTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                                        <div className="flex-1"><label className="text-[10px] text-gray-500">Fi (s)</label><input type="number" step="0.01" value={Number(opt.endTime || duration).toFixed(2)} onChange={(e) => updateOption(opt.id, 'endTime', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
                                                     </div>
                                                     
-                                                    {/* Posició i Mida (X, Y, Amplada H, Alçada V) */}
-                                                    <div className="grid grid-cols-2 gap-2 mt-2 mb-2">
-                                                        <div><label className="text-[10px] text-gray-500">Posició X (%)</label><input type="number" step="0.5" value={typeof opt.style.left === 'string' ? parseFloat(opt.style.left) : (opt.style.left || 0)} onChange={(e) => updateOptionStyle(opt.id, 'left', parseFloat(e.target.value) || 0)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
-                                                        <div><label className="text-[10px] text-gray-500">Posició Y (%)</label><input type="number" step="0.5" value={typeof opt.style.top === 'string' ? parseFloat(opt.style.top) : (opt.style.top || 0)} onChange={(e) => updateOptionStyle(opt.id, 'top', parseFloat(e.target.value) || 0)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
-                                                        <div><label className="text-[10px] text-gray-500">Amplada H (%)</label><input type="number" step="0.5" value={typeof opt.style.width === 'string' ? parseFloat(opt.style.width) : (opt.style.width || 0)} onChange={(e) => updateOptionStyle(opt.id, 'width', parseFloat(e.target.value) || 0)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
-                                                        <div><label className="text-[10px] text-gray-500">Alçada V (%)</label><input type="number" step="0.5" value={typeof opt.style.height === 'string' ? parseFloat(opt.style.height) : (opt.style.height || 0)} onChange={(e) => updateOptionStyle(opt.id, 'height', parseFloat(e.target.value) || 0)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                                    {/* X, Y, Width, Height */}
+                                                    <div className="grid grid-cols-4 gap-2 mt-2 mb-2">
+                                                        <div><label className="text-[10px] text-gray-500">X (%)</label><input type="number" step="0.01" value={Number(opt.style.left||0).toFixed(2)} onChange={(e) => updateOptionStyle(opt.id, 'left', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                                        <div><label className="text-[10px] text-gray-500">Y (%)</label><input type="number" step="0.01" value={Number(opt.style.top||0).toFixed(2)} onChange={(e) => updateOptionStyle(opt.id, 'top', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                                        <div><label className="text-[10px] text-gray-500">Ampl. (%)</label><input type="number" step="0.01" value={Number(opt.style.width||20).toFixed(2)} onChange={(e) => updateOptionStyle(opt.id, 'width', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
+                                                        <div><label className="text-[10px] text-gray-500">Alç. (%)</label><input type="number" step="0.01" value={Number(opt.style.height||10).toFixed(2)} onChange={(e) => updateOptionStyle(opt.id, 'height', parseFloat(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>
                                                     </div>
                                                     
                                                     {/* Font Style Controls */}
                                                     <div className="grid grid-cols-2 gap-2 mb-2">
                                                         <div>
-                                                            <label className="text-[10px] text-gray-500 block">Mida (ref. 900p)</label>
+                                                            <label className="text-[10px] text-gray-500 block">Mida text (ref. 900p)</label>
                                                             <input type="number" value={opt.style.fontSize} onChange={(e) => updateOptionStyle(opt.id, 'fontSize', parseInt(e.target.value))} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/>
                                                         </div>
                                                         <div>
@@ -1796,7 +2058,7 @@
 
                                                     <div className="flex gap-2 mb-2"><div className="flex-1 flex items-center gap-1 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.singleUse || false} onChange={(e) => updateOption(opt.id, 'singleUse', e.target.checked)} className="w-3 h-3"/><Ghost size={12}/><label className="text-[10px] text-gray-400">Un sol ús</label></div><div className="flex-1 flex items-center gap-1 bg-gray-900 p-1.5 rounded"><input type="checkbox" checked={opt.isHotspot || false} onChange={(e) => updateOption(opt.id, 'isHotspot', e.target.checked)} className="w-3 h-3"/><EyeOff size={12}/><label className="text-[10px] text-gray-400">Hotspot</label></div></div>
                                                     {opt.isHotspot && (<div className="mb-2"><label className="text-[10px] text-gray-500">Text al passar el ratolí</label><input type="text" value={opt.hoverText || ''} onChange={(e) => updateOption(opt.id, 'hoverText', e.target.value)} className="w-full bg-gray-900 border border-gray-600 text-xs px-1 rounded"/></div>)}
-                                                    <div className="bg-gray-900 p-2 rounded mb-2 border border-gray-600"><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-1"><MapPin size={12} className={opt.useKeyframes ? "text-orange-400" : "text-gray-500"}/><label className="text-[10px] text-gray-400">Animació</label></div><input type="checkbox" checked={opt.useKeyframes || false} onChange={(e) => updateOption(opt.id, 'useKeyframes', e.target.checked)} className="w-3 h-3"/></div>{opt.useKeyframes && (<div className="space-y-1"><button onClick={() => addKeyframe(opt)} className="w-full text-xs bg-orange-600 hover:bg-orange-500 text-white rounded py-1 mt-1 flex items-center justify-center gap-1"><Plus size={10}/>Keyframe</button>{opt.keyframes && opt.keyframes.length > 0 && (<div className="max-h-24 overflow-y-auto mt-2 space-y-1 border-t border-gray-700 pt-1">{opt.keyframes.map((kf, ki) => (<div key={ki} className="flex justify-between items-center text-[10px] bg-gray-800 p-1 rounded"><button onClick={() => seekToKeyframe(kf.time)} className="text-blue-300 hover:underline flex items-center gap-1"><Target size={10}/> {kf.time.toFixed(1)}s</button><button onClick={() => deleteKeyframe(opt.id, kf.time)} className="text-red-400 hover:text-red-300"><Trash2 size={10}/></button></div>))}</div>)}</div>)}</div>
+                                                    <div className="bg-gray-900 p-2 rounded mb-2 border border-gray-600"><div className="flex items-center justify-between mb-1"><div className="flex items-center gap-1"><MapPin size={12} className={opt.useKeyframes ? "text-orange-400" : "text-gray-500"}/><label className="text-[10px] text-gray-400">Animació</label></div><input type="checkbox" checked={opt.useKeyframes || false} onChange={(e) => updateOption(opt.id, 'useKeyframes', e.target.checked)} className="w-3 h-3"/></div>{opt.useKeyframes && (<div className="space-y-1"><button onClick={() => addKeyframe(opt)} className="w-full text-xs bg-orange-600 hover:bg-orange-500 text-white rounded py-1 mt-1 flex items-center justify-center gap-1"><Plus size={10}/>Guardar Keyframe</button>{opt.keyframes && opt.keyframes.length > 0 && (<div className="max-h-24 overflow-y-auto mt-2 space-y-1 border-t border-gray-700 pt-1">{opt.keyframes.map((kf, ki) => (<div key={ki} className="flex justify-between items-center text-[10px] bg-gray-800 p-1 rounded"><button onClick={() => seekToKeyframe(kf.time)} className="text-blue-300 hover:underline flex items-center gap-1"><Target size={10}/> {kf.time.toFixed(2)}s</button><button onClick={() => deleteKeyframe(opt.id, kf.time)} className="text-red-400 hover:text-red-300"><Trash2 size={10}/></button></div>))}</div>)}</div>)}</div>
                                                     {!opt.isHotspot && (<div><label className="text-[10px] text-gray-500">Colors</label><div className="flex gap-2"><input type="color" value={opt.style.backgroundColor} onChange={(e) => batchUpdateOptionStyles(opt.id, {backgroundColor: e.target.value})} className="h-5 w-full"/><input type="color" value={opt.style.color} onChange={(e) => batchUpdateOptionStyles(opt.id, {color: e.target.value})} className="h-5 w-full"/></div><div className="mt-1"><label className="text-[10px] text-gray-500">Transparència Fons</label><input type="range" min="0" max="1" step="0.1" value={opt.style.bgOpacity !== undefined ? opt.style.bgOpacity : 1} onChange={(e) => updateOptionStyle(opt.id, 'bgOpacity', parseFloat(e.target.value))} className="w-full accent-blue-500 h-1 bg-gray-600"/></div></div>)}
                                                 </div>
                                             </details>
@@ -1809,8 +2071,8 @@
                                                 </div>
                                             </details>
                                         </div>
-                                    );
-                                  })}
+                                        );
+                                    })}
                                 </div>
                               </>
                           )}
@@ -1821,13 +2083,10 @@
                 )}
               </div>
 
-              {/* NOTA A PEU */}
-              <footer className="bg-gray-950 border-t border-gray-800 py-2 px-4 flex justify-between items-center shrink-0 z-20 select-none">
-                  <div className="flex flex-col">
-                      <span className="text-[11px] text-gray-400 font-medium">Una creació de Xavier Ribes</span>
-                      <span className="text-[10px] text-gray-500">Departament de Comunicació Audiovisual i Publicitat</span>
-                  </div>
-                  <div className="text-[10px] text-gray-600 font-bold tracking-wider">GameLab UAB</div>
+              {/* FOOTER */}
+              <footer className="h-12 bg-gray-800 border-t border-gray-700 flex items-center justify-center shrink-0 z-20 text-xs text-gray-500 flex-col">
+                  <div>Una creació de Xavier Ribes</div>
+                  <div>Departament de Comunicació Audiovisual i Publicitat</div>
               </footer>
 
               {/* MODALS */}
@@ -1862,7 +2121,7 @@
                               </div>
                               <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
                                   <h4 className="font-bold text-white mb-2 text-base">4. Posició i Animació (Keyframes)</h4>
-                                  <p>Arrossega els botons directament sobre el vídeo per posicionar-los i redimensionar-los. Si actives l'opció d'<strong>Animació</strong>, podràs afegir múltiples <em>Keyframes</em> (punts clau) per aconseguir que el botó es mogui seguint un element concret del vídeo.</p>
+                                  <p>Arrossega els botons directament sobre el vídeo per posicionar-los i redimensionar-los, o utilitza la pestanya inferior per fixar valors numèrics. Si actives l'opció d'<strong>Animació</strong>, podràs afegir múltiples <em>Keyframes</em> per aconseguir que el botó es mogui i canviï de color seguint un element concret del vídeo.</p>
                               </div>
                               <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700/50">
                                   <h4 className="font-bold text-white mb-2 text-base">5. Lògica Avançada (Variables)</h4>
